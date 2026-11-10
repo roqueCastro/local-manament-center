@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import Database from 'better-sqlite3'
-import type { NewTaskInput, Task, TaskPatch } from '../shared/types'
+import type { NewTaskInput, PropValue, Task, TaskPatch } from '../shared/types'
 
 let db: Database.Database
 
@@ -16,9 +16,21 @@ interface TaskRow {
   priority: number
   tags: string | null
   project: string | null
+  notion_db: string | null
+  props: string | null // JSON: propiedades de Notion
+  dirty: string | null // JSON: nombres de propiedades cambiadas localmente sin subir
   created_at: string
   updated_at: string
   synced: number
+}
+
+function parseJson<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -31,6 +43,8 @@ function rowToTask(row: TaskRow): Task {
     priority: row.priority,
     tags: row.tags ? (JSON.parse(row.tags) as string[]) : [],
     project: row.project,
+    notionDb: row.notion_db,
+    props: parseJson<Record<string, PropValue>>(row.props, {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     synced: row.synced === 1
@@ -78,6 +92,13 @@ export function initDb(): void {
   if (!columnExists('tasks', 'project')) {
     db.exec('ALTER TABLE tasks ADD COLUMN project TEXT')
   }
+  // Migración: database de Notion donde vive cada tarea (multi-proyecto)
+  if (!columnExists('tasks', 'notion_db')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN notion_db TEXT')
+  }
+  // Migración: todas las propiedades de Notion + cuáles cambiaron localmente
+  if (!columnExists('tasks', 'props')) db.exec('ALTER TABLE tasks ADD COLUMN props TEXT')
+  if (!columnExists('tasks', 'dirty')) db.exec('ALTER TABLE tasks ADD COLUMN dirty TEXT')
 }
 
 export function listTasks(): Task[] {
@@ -117,15 +138,17 @@ export function createTask(input: NewTaskInput): Task {
     priority: input.priority ?? 0,
     tags: input.tags ?? [],
     project: input.project ?? null,
+    notionDb: null,
+    props: input.props ?? {},
     createdAt: now,
     updatedAt: now,
     synced: false
   }
   db.prepare(
     `INSERT INTO tasks
-       (id, notion_id, title, status, due_date, priority, tags, project, created_at, updated_at, synced)
+       (id, notion_id, title, status, due_date, priority, tags, project, props, created_at, updated_at, synced)
      VALUES
-       (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @created_at, @updated_at, @synced)`
+       (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @props, @created_at, @updated_at, @synced)`
   ).run({
     id: task.id,
     notion_id: null,
@@ -135,6 +158,7 @@ export function createTask(input: NewTaskInput): Task {
     priority: task.priority,
     tags: JSON.stringify(task.tags),
     project: task.project,
+    props: JSON.stringify(task.props),
     created_at: task.createdAt,
     updated_at: task.updatedAt,
     synced: 0
@@ -143,9 +167,13 @@ export function createTask(input: NewTaskInput): Task {
   return task
 }
 
-export function updateTask(id: string, patch: TaskPatch): Task | null {
+// Aplica cambios locales. `dirtyProps` = propiedades de Notion que hay que subir en el
+// próximo sync (se acumulan hasta que se sincroniza).
+export function updateTask(id: string, patch: TaskPatch, dirtyProps: string[] = []): Task | null {
   const existing = getTask(id)
   if (!existing) return null
+  const row = db.prepare('SELECT dirty FROM tasks WHERE id = ?').get(id) as { dirty: string | null }
+  const dirty = new Set([...parseJson<string[]>(row.dirty, []), ...dirtyProps])
 
   const merged: Task = {
     ...existing,
@@ -155,6 +183,7 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
     priority: patch.priority ?? existing.priority,
     tags: patch.tags ?? existing.tags,
     project: patch.project !== undefined ? patch.project : existing.project,
+    props: patch.props ? { ...existing.props, ...patch.props } : existing.props,
     updatedAt: new Date().toISOString(),
     synced: false // cualquier cambio local queda pendiente de sincronizar
   }
@@ -167,6 +196,8 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
        priority = @priority,
        tags = @tags,
        project = @project,
+       props = @props,
+       dirty = @dirty,
        updated_at = @updated_at,
        synced = @synced
      WHERE id = @id`
@@ -178,6 +209,8 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
     priority: merged.priority,
     tags: JSON.stringify(merged.tags),
     project: merged.project,
+    props: JSON.stringify(merged.props),
+    dirty: JSON.stringify([...dirty]),
     updated_at: merged.updatedAt,
     synced: 0
   })
@@ -207,19 +240,22 @@ export function removeTask(id: string): boolean {
 // ---- Operaciones de sincronización ----
 
 // Tareas con cambios locales pendientes de subir a Notion.
-export function getUnsyncedTasks(): Task[] {
+export function getUnsyncedTasks(): Array<{ task: Task; dirty: string[] }> {
   const rows = db.prepare('SELECT * FROM tasks WHERE synced = 0').all() as TaskRow[]
-  return rows.map(rowToTask)
+  return rows.map((r) => ({ task: rowToTask(r), dirty: parseJson<string[]>(r.dirty, []) }))
 }
 
-// Marca una tarea como sincronizada, fijando su notion_id y alineando updated_at
-// con el last_edited_time remoto para que el pull no la vea como "más nueva".
-export function markSynced(id: string, notionId: string, remoteUpdatedAt: string): void {
-  db.prepare('UPDATE tasks SET notion_id = ?, updated_at = ?, synced = 1 WHERE id = ?').run(
-    notionId,
-    remoteUpdatedAt,
-    id
-  )
+// Marca una tarea como sincronizada, fijando su notion_id (y la database donde vive) y
+// alineando updated_at con el last_edited_time remoto para que el pull no la vea como "más nueva".
+export function markSynced(
+  id: string,
+  notionId: string,
+  remoteUpdatedAt: string,
+  notionDb: string
+): void {
+  db.prepare(
+    "UPDATE tasks SET notion_id = ?, updated_at = ?, notion_db = ?, dirty = '[]', synced = 1 WHERE id = ?"
+  ).run(notionId, remoteUpdatedAt, notionDb, id)
 }
 
 // Inserta o actualiza una tarea proveniente de Notion (queda como synced=1).
@@ -231,6 +267,8 @@ export function upsertFromNotion(data: {
   priority: number
   tags: string[]
   project: string | null
+  notionDb: string
+  props: Record<string, PropValue>
   updatedAt: string
 }): void {
   const existing = getTaskByNotionId(data.notionId)
@@ -238,7 +276,8 @@ export function upsertFromNotion(data: {
   if (existing) {
     db.prepare(
       `UPDATE tasks SET title=@title, status=@status, due_date=@due_date,
-         priority=@priority, tags=@tags, project=@project, updated_at=@updated_at, synced=1
+         priority=@priority, tags=@tags, project=@project, notion_db=@notion_db,
+         props=@props, dirty='[]', updated_at=@updated_at, synced=1
        WHERE notion_id=@notion_id`
     ).run({
       notion_id: data.notionId,
@@ -248,14 +287,16 @@ export function upsertFromNotion(data: {
       priority: data.priority,
       tags: JSON.stringify(data.tags),
       project: data.project,
+      notion_db: data.notionDb,
+      props: JSON.stringify(data.props),
       updated_at: data.updatedAt
     })
   } else {
     db.prepare(
       `INSERT INTO tasks
-         (id, notion_id, title, status, due_date, priority, tags, project, created_at, updated_at, synced)
+         (id, notion_id, title, status, due_date, priority, tags, project, notion_db, props, dirty, created_at, updated_at, synced)
        VALUES
-         (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @created_at, @updated_at, 1)`
+         (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @notion_db, @props, '[]', @created_at, @updated_at, 1)`
     ).run({
       id: randomUUID(),
       notion_id: data.notionId,
@@ -265,6 +306,8 @@ export function upsertFromNotion(data: {
       priority: data.priority,
       tags: JSON.stringify(data.tags),
       project: data.project,
+      notion_db: data.notionDb,
+      props: JSON.stringify(data.props),
       created_at: now,
       updated_at: data.updatedAt
     })

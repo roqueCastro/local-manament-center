@@ -35,6 +35,7 @@ interface TasksState {
   loadConnection: () => Promise<void>
   connectNotion: (token: string, databaseId: string) => Promise<ConnectResult>
   disconnectNotion: () => Promise<void>
+  setProjectEnabled: (databaseId: string, enabled: boolean) => Promise<void>
   syncNow: () => Promise<void>
   setSyncState: (s: SyncState) => void
 
@@ -134,6 +135,12 @@ export const useTasks = create<TasksState>((set, get) => ({
     await get().loadConnection()
   },
 
+  setProjectEnabled: async (databaseId, enabled) => {
+    const notion = await window.api.notion.setEnabled(databaseId, enabled)
+    set({ notion })
+    await get().loadProjects()
+  },
+
   syncNow: async () => {
     try {
       const state = await window.api.sync.now()
@@ -151,7 +158,9 @@ export const useTasks = create<TasksState>((set, get) => ({
   loadProjects: async () => {
     try {
       const projects = await window.api.projects.list()
-      set({ projects })
+      // Si el proyecto activo se desmarcó en Ajustes, volver a "Todos"
+      const active = get().activeProject
+      set({ projects, activeProject: active && !projects.includes(active) ? '' : active })
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('Error al cargar proyectos:', e)
