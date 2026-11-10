@@ -1,5 +1,5 @@
 import type { AiStatus, ParseVoiceResult } from '../shared/types'
-import { listProjects } from './db'
+import { getProjects } from './sync'
 import { GroqError, parseTasksFromText, transcribeAudio } from './groq'
 import {
   clearGroqKey,
@@ -43,10 +43,12 @@ export async function voiceFromAudio(
     if (buffer.length < 1000) return { ok: false, error: 'La grabación es demasiado corta.' }
     const transcript = await transcribeAudio(key, buffer, filenameFor(mimeType))
     if (!transcript) return { ok: false, error: 'No se entendió el audio. Probá de nuevo.' }
-    const today = new Date().toISOString().slice(0, 10)
+    // Fecha local (toISOString daría mañana por la noche, al estar en UTC)
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     const tasks = await parseTasksFromText(key, transcript, {
       today,
-      projects: listProjects()
+      projects: getProjects()
     })
     if (tasks.length === 0) {
       return { ok: false, error: 'No pude extraer tareas de lo dictado.', transcript }
