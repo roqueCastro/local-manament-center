@@ -1,0 +1,30 @@
+# Dependencias
+node_modules/
+
+# Builds
+out/
+dist/
+release/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Entorno / secretos (Notion token, Groq API key, etc.)
+.env
+.env.*
+*.key
+*.pem
+
+# Base de datos local
+*.sqlite
+*.sqlite3
+*.db
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
