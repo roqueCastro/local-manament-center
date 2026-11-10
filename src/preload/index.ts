@@ -6,6 +6,7 @@ import type {
   NotionConnection,
   ParseVoiceResult,
   SyncState,
+  ManagerPrefs,
   Task,
   TaskPatch,
   WindowApi
@@ -27,7 +28,9 @@ const api: WindowApi = {
       ipcRenderer.invoke('notion:getConnection') as Promise<NotionConnection>,
     connect: (token: string, databaseId: string) =>
       ipcRenderer.invoke('notion:connect', token, databaseId) as Promise<ConnectResult>,
-    disconnect: () => ipcRenderer.invoke('notion:disconnect') as Promise<void>
+    disconnect: () => ipcRenderer.invoke('notion:disconnect') as Promise<void>,
+    setEnabled: (databaseId: string, enabled: boolean) =>
+      ipcRenderer.invoke('notion:setEnabled', databaseId, enabled) as Promise<NotionConnection>
   },
   sync: {
     now: () => ipcRenderer.invoke('sync:now') as Promise<SyncState>,
@@ -44,7 +47,21 @@ const api: WindowApi = {
     voiceFromAudio: (audio: ArrayBuffer, mimeType: string) =>
       ipcRenderer.invoke('ai:voiceFromAudio', audio, mimeType) as Promise<ParseVoiceResult>
   },
+  bubble: {
+    dragStart: () => ipcRenderer.send('bubble:dragStart'),
+    dragMove: () => ipcRenderer.send('bubble:dragMove'),
+    dragEnd: () => ipcRenderer.send('bubble:dragEnd'),
+    contextMenu: () => ipcRenderer.send('bubble:contextMenu'),
+    onBadge: (cb: (pending: number) => void) => {
+      ipcRenderer.on('bubble:badge', (_e, pending: number) => cb(pending))
+    }
+  },
   hidePanel: () => ipcRenderer.send('panel:hide'),
+  openManager: () => ipcRenderer.send('manager:open'),
+  managerPrefs: {
+    get: () => ipcRenderer.invoke('prefs:getManager') as Promise<ManagerPrefs>,
+    set: (patch: Partial<ManagerPrefs>) => ipcRenderer.send('prefs:setManager', patch)
+  },
   setPinned: (pinned: boolean) => ipcRenderer.send('panel:setPinned', pinned),
   // Nota: no retornamos funciones a través de contextBridge (structured clone
   // no las soporta de forma fiable). Usamos on/off separados.

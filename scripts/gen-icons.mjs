@@ -118,6 +118,8 @@ mkdirSync(buildDir, { recursive: true })
 // Tray: 22px (macOS) — template image
 writeFileSync(join(resourcesDir, 'trayTemplate.png'), makePng(22, trayTemplateDraw))
 writeFileSync(join(resourcesDir, 'trayTemplate@2x.png'), makePng(44, trayTemplateDraw))
+// Tray a color para Linux/Windows (no soportan template images; el negro no se ve en barras oscuras)
+writeFileSync(join(resourcesDir, 'trayColor.png'), makePng(32, appDraw))
 // Icono de app
 writeFileSync(join(resourcesDir, 'icon.png'), makePng(512, appDraw))
 writeFileSync(join(buildDir, 'icon.png'), makePng(512, appDraw))

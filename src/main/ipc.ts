@@ -1,6 +1,11 @@
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
+import type { IpcMainInvokeEvent } from 'electron'
 import type { NewTaskInput, TaskPatch } from '../shared/types'
-import { createTask, listTasks, removeTask, toggleTask, updateTask } from './db'
+import { listTasks, removeTask } from './db'
+import { createTaskSvc, toggleTaskSvc, updateTaskSvc } from './tasks'
+import { getUiSettings, isDatabaseExcluded, saveUiSettings } from './settings'
+import type { ManagerPrefs } from '../shared/types'
+import { updateBubbleBadge } from './bubble'
 import { clearAiKey, getAiStatus, setAiKey, voiceFromAudio } from './ai'
 import {
   connectNotion,
@@ -10,32 +15,56 @@ import {
   getProjects,
   getSyncState,
   requestSync,
+  setDatabaseEnabled,
   syncNow
 } from './sync'
+
+// Tras un cambio local: sincronizar (con debounce), actualizar la burbuja y avisar a las
+// demás ventanas (panel ↔ gestor) para que recarguen.
+function afterMutation(e: IpcMainInvokeEvent): void {
+  requestSync()
+  updateBubbleBadge()
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('data:changed')
+  }
+}
 
 // Registra todos los handlers IPC que el renderer invoca vía window.api.
 export function registerIpc(): void {
   // --- Tareas (tras cada mutación, agenda un sync con debounce) ---
-  ipcMain.handle('tasks:list', () => listTasks())
-  ipcMain.handle('tasks:create', (_e, input: NewTaskInput) => {
-    const t = createTask(input)
-    requestSync()
+  // Las tareas de proyectos desmarcados en Ajustes no se muestran (el sync las quita)
+  ipcMain.handle('tasks:list', () =>
+    listTasks().filter((t) => !t.notionDb || !isDatabaseExcluded(t.notionDb))
+  )
+  ipcMain.handle('tasks:create', (e, input: NewTaskInput) => {
+    const t = createTaskSvc(input)
+    afterMutation(e)
     return t
   })
-  ipcMain.handle('tasks:update', (_e, id: string, patch: TaskPatch) => {
-    const t = updateTask(id, patch)
-    requestSync()
+  ipcMain.handle('tasks:update', (e, id: string, patch: TaskPatch) => {
+    const t = updateTaskSvc(id, patch)
+    afterMutation(e)
     return t
   })
-  ipcMain.handle('tasks:toggle', (_e, id: string) => {
-    const t = toggleTask(id)
-    requestSync()
+  ipcMain.handle('tasks:toggle', (e, id: string) => {
+    const t = toggleTaskSvc(id)
+    afterMutation(e)
     return t
   })
-  ipcMain.handle('tasks:remove', (_e, id: string) => {
+  ipcMain.handle('tasks:remove', (e, id: string) => {
     const ok = removeTask(id)
-    requestSync()
+    afterMutation(e)
     return ok
+  })
+
+  // --- Preferencias del gestor (se escriben al instante en settings.json) ---
+  ipcMain.handle(
+    'prefs:getManager',
+    (): ManagerPrefs => getUiSettings().manager ?? { project: '', filter: 'pending', views: {} }
+  )
+  ipcMain.on('prefs:setManager', (_e, patch: Partial<ManagerPrefs>) => {
+    const cur = getUiSettings().manager ?? { project: '', filter: 'pending', views: {} }
+    saveUiSettings({ manager: { ...cur, ...patch } })
   })
 
   // --- Notion ---
@@ -44,6 +73,9 @@ export function registerIpc(): void {
     connectNotion(token, databaseId)
   )
   ipcMain.handle('notion:disconnect', () => disconnectNotion())
+  ipcMain.handle('notion:setEnabled', (_e, id: string, enabled: boolean) =>
+    setDatabaseEnabled(id, enabled)
+  )
 
   // --- Sync ---
   ipcMain.handle('sync:now', () => syncNow())

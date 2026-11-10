@@ -57,6 +57,7 @@ export function VoiceButton(): JSX.Element {
 
   return (
     <button
+      type="button"
       onClick={() => (listening ? stop() : void start())}
       disabled={disabled}
       title={
@@ -68,20 +69,27 @@ export function VoiceButton(): JSX.Element {
               ? 'Detener y procesar'
               : 'Dictar tareas por voz'
       }
-      className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+      className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-all disabled:opacity-40 ${
         listening
-          ? 'bg-red-500 text-white animate-pulse'
-          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40'
+          ? 'bg-[#d93025] text-white shadow-elev-2'
+          : 'bg-primary-soft text-on-primary-soft hover:shadow-elev-1'
       }`}
     >
+      {/* Anillo pulsante mientras graba (como el micrófono de Google) */}
+      {listening && (
+        <span className="absolute inset-0 animate-ping rounded-full bg-[#d93025]/40" />
+      )}
       {busy ? (
-        <svg viewBox="0 0 24 24" className="h-5 w-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg viewBox="0 0 24 24" className="h-5 w-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5">
           <path d="M21 12a9 9 0 11-6.2-8.5" strokeLinecap="round" />
         </svg>
+      ) : listening ? (
+        <svg viewBox="0 0 24 24" className="relative h-5 w-5" fill="currentColor">
+          <rect x="7" y="7" width="10" height="10" rx="2" />
+        </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-          <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+          <path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a5 5 0 01-10 0H5a7 7 0 006 6.92V21h2v-3.08A7 7 0 0019 11h-2z" />
         </svg>
       )}
     </button>

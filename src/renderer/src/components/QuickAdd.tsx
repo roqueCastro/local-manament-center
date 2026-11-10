@@ -38,7 +38,7 @@ export function QuickAdd(): JSX.Element {
   }
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 p-3">
+    <div className="px-3 pb-3 pt-2">
       <div className="flex items-center gap-2">
         <VoiceButton />
         <input
@@ -51,16 +51,17 @@ export function QuickAdd(): JSX.Element {
             if (e.key === 'Escape') window.api.hidePanel()
           }}
           placeholder="Nueva tarea…  (#etiqueta  ! prioridad)"
-          className="flex-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm
-                     text-gray-900 dark:text-gray-100 placeholder-gray-400
-                     outline-none focus:ring-2 focus:ring-indigo-500"
+          className="pill-input"
         />
         <button
           onClick={submit}
-          className="shrink-0 rounded-lg bg-indigo-600 hover:bg-indigo-700 px-3 py-2
-                     text-sm font-medium text-white transition-colors"
+          aria-label="Añadir"
+          title="Añadir"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-on-primary shadow-elev-1 transition-all hover:shadow-elev-2"
         >
-          Añadir
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+          </svg>
         </button>
       </div>
     </div>

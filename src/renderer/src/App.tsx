@@ -74,31 +74,36 @@ export default function App(): JSX.Element {
   if (view === 'settings') return <Settings />
 
   return (
-    <div className="relative flex h-full flex-col bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="relative flex h-full flex-col bg-surface text-ink">
       {/* Cabecera (zona arrastrable del panel sin marco) */}
       <header
-        className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700"
+        className="flex items-center justify-between px-4 pb-2 pt-3"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div>
-          <h1 className="text-sm font-semibold">Centro de Tareas</h1>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          <h1 className="text-[17px] font-normal">Centro de Tareas</h1>
+          <p className="text-xs text-ink-2">
             {pendingCount} pendiente{pendingCount === 1 ? '' : 's'}
           </p>
         </div>
         <div
-          className="flex items-center gap-3"
+          className="flex items-center gap-0.5"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <SyncIndicator />
           <button
-            onClick={() => setView('settings')}
-            aria-label="Ajustes"
-            className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
+            onClick={() => window.api.openManager()}
+            aria-label="Abrir gestor de tareas"
+            title="Abrir gestor de tareas (vista ampliada)"
+            className="icon-btn"
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" strokeLinecap="round" strokeLinejoin="round" />
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z" />
+            </svg>
+          </button>
+          <button onClick={() => setView('settings')} aria-label="Ajustes" title="Ajustes" className="icon-btn">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.48.48 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7 7 0 00-1.62-.94l-.36-2.54A.48.48 0 0013.93 2h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.48.48 0 00-.59.22L2.73 8.87a.47.47 0 00.12.61l2.03 1.58a7.4 7.4 0 000 1.88l-2.03 1.58a.48.48 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 00-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z" />
             </svg>
           </button>
         </div>
@@ -106,18 +111,14 @@ export default function App(): JSX.Element {
 
       {/* Filtros */}
       <div
-        className="flex gap-1 px-3 py-2"
+        className="flex gap-2 px-4 pb-2"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         {filters.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              filter === f.key
-                ? 'bg-indigo-600 text-white'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
+            className={`chip ${filter === f.key ? 'chip-on' : ''}`}
           >
             {f.label}
           </button>
@@ -128,11 +129,11 @@ export default function App(): JSX.Element {
       <ProjectBar />
 
       {/* Lista */}
-      <div className="scroll-thin flex-1 overflow-y-auto px-1 pb-2">
+      <div className="scroll-thin flex-1 overflow-y-auto pb-2 pt-1">
         {loading && visible.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-gray-400">Cargando…</p>
+          <p className="px-4 py-6 text-center text-sm text-ink-2">Cargando…</p>
         ) : visible.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-gray-400">
+          <p className="px-4 py-10 text-center text-sm text-ink-2">
             {filter === 'done' ? 'Aún no completaste tareas.' : 'Sin tareas. ¡Añadí una abajo!'}
           </p>
         ) : (

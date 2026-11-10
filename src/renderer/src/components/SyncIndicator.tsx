@@ -17,16 +17,16 @@ export function SyncIndicator(): JSX.Element | null {
   if (!notion) return null
 
   if (!notion.connected) {
-    return <span className="text-[11px] text-gray-400">Sin Notion</span>
+    return <span className="text-xs text-ink-2">Sin Notion</span>
   }
 
   const status = sync?.status ?? 'idle'
   const dot =
     status === 'syncing'
-      ? 'bg-amber-400 animate-pulse'
+      ? 'bg-[#f9ab00] animate-pulse'
       : status === 'error'
-        ? 'bg-red-500'
-        : 'bg-emerald-500'
+        ? 'bg-[#d93025]'
+        : 'bg-[#1e8e3e]'
 
   const label =
     status === 'syncing'
@@ -36,7 +36,10 @@ export function SyncIndicator(): JSX.Element | null {
         : `Sync ${timeAgo(sync?.lastSyncTime ?? notion.lastSyncTime)}`
 
   return (
-    <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+    <span
+      title={status === 'error' ? (sync?.lastError ?? '') : undefined}
+      className="inline-flex h-7 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs text-ink-2"
+    >
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       {label}
     </span>
