@@ -8,7 +8,7 @@ import type { ManagerPrefs } from '../shared/types'
 import { updateBubbleBadge } from './bubble'
 import { updateSchema } from './schema'
 import { refreshReminders } from './reminders'
-import { clearAiKey, getAiStatus, setAiKey, voiceFromAudio } from './ai'
+import { clearAiKey, getAiStatus, setAiKey, tasksFromText, voiceFromAudio } from './ai'
 import {
   connectNotion,
   createProject,
@@ -102,7 +102,10 @@ export function registerIpc(): void {
   ipcMain.handle('ai:getStatus', () => getAiStatus())
   ipcMain.handle('ai:setKey', (_e, key: string) => setAiKey(key))
   ipcMain.handle('ai:clearKey', () => clearAiKey())
-  ipcMain.handle('ai:voiceFromAudio', (_e, audio: ArrayBuffer, mimeType: string) =>
-    voiceFromAudio(audio, mimeType)
+  ipcMain.handle('ai:voiceFromAudio', (_e, audio: ArrayBuffer, mimeType: string, project: string | null) =>
+    voiceFromAudio(audio, mimeType, project)
+  )
+  ipcMain.handle('ai:tasksFromText', (_e, text: string, project: string | null) =>
+    tasksFromText(text, project)
   )
 }

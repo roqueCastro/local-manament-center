@@ -50,8 +50,10 @@ const api: WindowApi = {
     getStatus: () => ipcRenderer.invoke('ai:getStatus') as Promise<AiStatus>,
     setKey: (key: string) => ipcRenderer.invoke('ai:setKey', key) as Promise<AiStatus>,
     clearKey: () => ipcRenderer.invoke('ai:clearKey') as Promise<AiStatus>,
-    voiceFromAudio: (audio: ArrayBuffer, mimeType: string) =>
-      ipcRenderer.invoke('ai:voiceFromAudio', audio, mimeType) as Promise<ParseVoiceResult>
+    voiceFromAudio: (audio: ArrayBuffer, mimeType: string, project?: string | null) =>
+      ipcRenderer.invoke('ai:voiceFromAudio', audio, mimeType, project ?? null) as Promise<ParseVoiceResult>,
+    tasksFromText: (text: string, project?: string | null) =>
+      ipcRenderer.invoke('ai:tasksFromText', text, project ?? null) as Promise<ParseVoiceResult>
   },
   bubble: {
     dragStart: () => ipcRenderer.send('bubble:dragStart'),

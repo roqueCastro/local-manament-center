@@ -205,6 +205,8 @@ export interface VoiceTask {
   priority: number
   tags: string[]
   project: string | null
+  // Valores para las columnas del proyecto (Cliente, Plan, Estado…), ya validados
+  props?: Record<string, PropValue>
 }
 
 export interface AiStatus {
@@ -224,7 +226,10 @@ export interface AiApi {
   setKey: (key: string) => Promise<AiStatus>
   clearKey: () => Promise<AiStatus>
   // Recibe el audio grabado (webm/ogg/wav); Groq lo transcribe y lo convierte en tareas.
-  voiceFromAudio: (audio: ArrayBuffer, mimeType: string) => Promise<ParseVoiceResult>
+  // `project`: proyecto destino (null = la IA lo elige entre los activos)
+  voiceFromAudio: (audio: ArrayBuffer, mimeType: string, project?: string | null) => Promise<ParseVoiceResult>
+  // Texto escrito → tareas con sus columnas llenas (para revisar antes de crear)
+  tasksFromText: (text: string, project?: string | null) => Promise<ParseVoiceResult>
 }
 
 // Burbuja flotante: el arrastre se calcula en el main con la posición real del cursor.
@@ -262,6 +267,7 @@ export interface ManagerPrefs {
   project: string // proyecto seleccionado ('' = Todos)
   filter: 'pending' | 'done' | 'all'
   views: Record<string, unknown> // filtros y orden de la tabla por proyecto ('*' = Todos)
+  aiText?: boolean // procesar con IA el texto de "Nueva tarea" (por defecto sí, si hay key)
 }
 
 export interface WindowApi {

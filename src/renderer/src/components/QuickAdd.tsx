@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useTasks } from '../store'
 import type { NewTaskInput } from '../../../shared/types'
 import { VoiceButton } from './VoiceButton'
+import { AiToggle, useAiText } from './AiToggle'
 
 // Parseo rápido: extrae #etiquetas y prioridad con "!" (!, !!, !!!) del texto.
 export function parseQuickInput(raw: string): NewTaskInput | null {
@@ -26,10 +27,20 @@ export function parseQuickInput(raw: string): NewTaskInput | null {
 
 export function QuickAdd(): JSX.Element {
   const add = useTasks((s) => s.add)
+  const processText = useTasks((s) => s.processText)
+  const activeProject = useTasks((s) => s.activeProject)
+  const aiText = useAiText()
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function submit(): Promise<void> {
+    // Con IA: reparte el texto en las columnas del proyecto y muestra la revisión
+    if (aiText.on) {
+      if (!value.trim()) return
+      void processText(value, activeProject || null)
+      setValue('')
+      return
+    }
     const parsed = parseQuickInput(value)
     if (!parsed) return
     await add(parsed)
@@ -41,6 +52,7 @@ export function QuickAdd(): JSX.Element {
     <div className="px-3 pb-3 pt-2">
       <div className="flex items-center gap-2">
         <VoiceButton />
+        {aiText.available && <AiToggle on={aiText.on} onToggle={aiText.toggle} />}
         <input
           ref={inputRef}
           autoFocus
@@ -50,7 +62,9 @@ export function QuickAdd(): JSX.Element {
             if (e.key === 'Enter') submit()
             if (e.key === 'Escape') window.api.hidePanel()
           }}
-          placeholder="Nueva tarea…  (#etiqueta  ! prioridad)"
+          placeholder={
+            aiText.on ? 'Tarea con sus datos (cliente, plan…)' : 'Nueva tarea…  (#etiqueta  ! prioridad)'
+          }
           className="pill-input"
         />
         <button

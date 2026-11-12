@@ -55,6 +55,8 @@ interface TasksState {
   setAiKey: (key: string) => Promise<void>
   clearAiKey: () => Promise<void>
   processVoiceAudio: (audio: ArrayBuffer, mimeType: string) => Promise<void>
+  // Texto de "Nueva tarea" → la IA llena las columnas del proyecto → revisión
+  processText: (text: string, project: string | null) => Promise<void>
   confirmVoice: (tasks: VoiceTask[]) => Promise<void>
   cancelVoice: () => void
 }
@@ -223,7 +225,8 @@ export const useTasks = create<TasksState>((set, get) => ({
   processVoiceAudio: async (audio, mimeType) => {
     set({ voiceState: 'processing', voiceError: null, voiceTasks: [] })
     try {
-      const res = await window.api.ai.voiceFromAudio(audio, mimeType)
+      // Dentro de un proyecto, las columnas son las de ese proyecto; en "Todos" la IA elige
+      const res = await window.api.ai.voiceFromAudio(audio, mimeType, get().activeProject || null)
       if (res.ok && res.tasks) {
         set({ voiceState: 'review', voiceTasks: res.tasks })
       } else {
@@ -237,6 +240,17 @@ export const useTasks = create<TasksState>((set, get) => ({
     }
   },
 
+  processText: async (text, project) => {
+    set({ voiceState: 'processing', voiceError: null, voiceTasks: [] })
+    try {
+      const res = await window.api.ai.tasksFromText(text, project)
+      if (res.ok && res.tasks) set({ voiceState: 'review', voiceTasks: res.tasks })
+      else set({ voiceState: 'error', voiceError: res.error ?? 'La IA no pudo interpretar el texto.' })
+    } catch (e) {
+      set({ voiceState: 'error', voiceError: (e as Error)?.message ?? 'Error al procesar con la IA.' })
+    }
+  },
+
   confirmVoice: async (tasks) => {
     const active = get().activeProject
     for (const t of tasks) {
@@ -245,7 +259,8 @@ export const useTasks = create<TasksState>((set, get) => ({
         dueDate: t.dueDate,
         priority: t.priority,
         tags: t.tags,
-        project: t.project ?? (active || null)
+        project: t.project ?? (active || null),
+        props: t.props
       })
     }
     set({ voiceState: 'idle', voiceTasks: [], voiceError: null })

@@ -1,5 +1,14 @@
 import type { VoiceTask } from '../shared/types'
 
+// Tarea tal como la propone la IA: `fields` llega sin validar (se valida contra el esquema)
+export type AiTask = VoiceTask & { fields: Record<string, unknown> }
+
+export interface ParseContext {
+  today: string
+  projects: string[]
+  columns?: string // columnas de cada proyecto (nombre, tipo y opciones válidas)
+}
+
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_TRANSCRIBE_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
 const GROQ_MODELS_URL = 'https://api.groq.com/openai/v1/models'
@@ -123,30 +132,45 @@ function calendarFrom(today: string): string {
   return lines.join('\n')
 }
 
-function buildSystemPrompt(today: string, projects: string[]): string {
+function buildSystemPrompt(ctx: ParseContext): string {
+  const { today, projects, columns } = ctx
   const projectList =
-    projects.length > 0
-      ? `Proyectos disponibles (usá EXACTAMENTE uno de estos nombres si el usuario menciona un proyecto): ${projects.join(', ')}.`
-      : 'No hay proyectos definidos; dejá project en null.'
+    projects.length === 1
+      ? `usá "${projects[0]}".`
+      : projects.length > 1
+        ? `Proyectos disponibles (usá EXACTAMENTE uno de estos nombres si el usuario menciona un proyecto; si no, null): ${projects.join(', ')}.`
+        : 'No hay proyectos definidos; dejá project en null.'
 
   return [
-    'Sos un asistente que convierte lo que dicta el usuario (en español) en una lista de tareas estructuradas.',
+    'Sos un asistente que convierte lo que escribe o dicta el usuario (en español) en una lista de tareas estructuradas.',
     'Respondé ÚNICAMENTE con un JSON válido con esta forma exacta:',
-    '{ "tasks": [ { "title": string, "due_date": string|null, "priority": number, "tags": string[], "project": string|null } ] }',
+    '{ "tasks": [ { "title": string, "project": string|null, "fields": { "<nombre de columna>": valor }, "due_date": string|null, "priority": number, "tags": string[] } ] }',
     'Reglas:',
-    '- title: breve e imperativo, en español, sin la fecha ni la prioridad dentro del texto.',
+    '- title: breve y claro, en español. No metas en el título la fecha, la prioridad ni los datos que ya van en otra columna (cliente, contacto, correo, plan, estado…).',
+    ...(columns
+      ? [
+          '- fields: valores para las COLUMNAS del proyecto, listadas abajo. Usá EXACTAMENTE el nombre de la columna. ' +
+            'En las de selección/estado usá EXACTAMENTE una de las opciones listadas (la más parecida a lo que dijo). ' +
+            'Selección múltiple = array. Fechas = "YYYY-MM-DD". Casilla = true/false. ' +
+            'Incluí SOLO las columnas para las que el texto da un dato; no inventes valores. ' +
+            'Si una columna es de prioridad, estado o fecha límite, ponelo también en fields.',
+          'Columnas por proyecto:\n' + columns
+        ]
+      : ['- fields: {} (no hay columnas definidas).']),
     '- due_date: fecha ISO "YYYY-MM-DD" o null. Usá SIEMPRE este calendario para fechas relativas ' +
+      '(también para las fechas que van en fields) ' +
       '("mañana", "el viernes", "el lunes"…). Un nombre de día = su próxima ocurrencia DESPUÉS de hoy:\n' +
       calendarFrom(today),
     '- priority: 0 normal, 1 baja, 2 media, 3 alta/urgente. Si dice "urgente"/"importante" => 3.',
     '- tags: etiquetas cortas en minúscula si las menciona (ej. "casa", "trabajo"); si no, [].',
     '- project: ' + projectList,
-    '- Si dicta varias tareas (separadas por "y", comas, etc.), devolvé una por cada una.',
+    '- Si describe varias tareas distintas, devolvé una por cada una. Los datos de una misma tarea ' +
+      '(cliente, contacto, correo, plan, prioridad…) NO son tareas aparte: van en fields de esa tarea.',
     'No agregues texto fuera del JSON.'
   ].join('\n')
 }
 
-function normalizeTask(raw: any, projects: string[]): VoiceTask | null {
+function normalizeTask(raw: any, projects: string[]): AiTask | null {
   if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) return null
   const priority = Math.max(0, Math.min(3, Math.round(Number(raw.priority) || 0)))
   const tags = Array.isArray(raw.tags)
@@ -162,22 +186,26 @@ function normalizeTask(raw: any, projects: string[]): VoiceTask | null {
     typeof raw.due_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw.due_date)
       ? raw.due_date.slice(0, 10)
       : null
-  return { title: raw.title.trim(), dueDate, priority, tags, project }
+  const fields =
+    raw.fields && typeof raw.fields === 'object' && !Array.isArray(raw.fields)
+      ? (raw.fields as Record<string, unknown>)
+      : {}
+  return { title: raw.title.trim(), dueDate, priority, tags, project, fields }
 }
 
 export async function parseTasksFromText(
   apiKey: string,
   text: string,
-  context: { today: string; projects: string[] },
+  context: ParseContext,
   attempt: { refreshModels?: boolean; jsonMode?: boolean } = {}
-): Promise<VoiceTask[]> {
+): Promise<AiTask[]> {
   const { refreshModels = false, jsonMode = true } = attempt
   const { chat } = await pickModels(apiKey, refreshModels)
   const body: Record<string, unknown> = {
     model: chat,
     temperature: 0.2,
     messages: [
-      { role: 'system', content: buildSystemPrompt(context.today, context.projects) },
+      { role: 'system', content: buildSystemPrompt(context) },
       { role: 'user', content: text }
     ]
   }
@@ -220,5 +248,5 @@ export async function parseTasksFromText(
   const rawTasks: any[] = Array.isArray(parsed?.tasks) ? parsed.tasks : []
   return rawTasks
     .map((t) => normalizeTask(t, context.projects))
-    .filter((t): t is VoiceTask => t !== null)
+    .filter((t): t is AiTask => t !== null)
 }
