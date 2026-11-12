@@ -5,17 +5,24 @@ import { Settings } from '../components/Settings'
 import { SyncIndicator } from '../components/SyncIndicator'
 import { parseQuickInput } from '../components/QuickAdd'
 import { VoiceButton } from '../components/VoiceButton'
+import { AiToggle, useAiText } from '../components/AiToggle'
 import { VoiceReview } from '../components/VoiceReview'
 import { ChipSelect } from '../ui/ChipSelect'
 import { chipClass, dotClass, PRIORITY_LEVELS } from '../ui/colors'
 import { TaskDetail } from './TaskDetail'
-import { chipOptions, formatValue } from './PropEditor'
+import { formatValue } from './PropEditor'
 import { FilterBar } from './FilterBar'
+import { Popover } from '../ui/Popover'
+import { OPTION_PROP_TYPES, OptionField } from './OptionField'
+import { ColumnMenu, NewPropertyForm } from './ColumnMenus'
+import { formatReminder, fromLocalInput, reminderTime, toLocalInput } from '../../../shared/dates'
 import {
   EMPTY_VIEW,
   applyView,
   buildColumns,
+  cycleSort,
   isActive,
+  normalizeView,
   type TableView
 } from './tableView'
 
@@ -51,14 +58,26 @@ export default function ManagerApp(): JSX.Element {
     setSyncState,
     add,
     edit,
-    toggle
+    toggle,
+    processText,
+    updateSchema
   } = useTasks()
 
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Menú de una columna (prop) o formulario de columna nueva (prop = null)
+  const [colMenu, setColMenu] = useState<{ prop: string | null; anchor: HTMLElement } | null>(null)
   // Preferencias guardadas en settings.json: proyecto, filtro y vista de tabla por proyecto
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const [views, setViews] = useState<Record<string, TableView>>({})
+  // Tabla compacta (textos a 2 líneas) o texto completo (por defecto)
+  const [compact, setCompact] = useState(false)
+  const toggleCompact = (): void => {
+    setCompact(!compact)
+    window.api.managerPrefs.set({ compact: !compact })
+  }
+  // Procesar con IA el texto de "Nueva tarea" (preferencia compartida con el panel rápido)
+  const aiText = useAiText()
   const viewKey = activeProject || '*'
   const tableView = views[viewKey] ?? EMPTY_VIEW
   const updateView = (v: TableView): void => {
@@ -74,7 +93,10 @@ export default function ManagerApp(): JSX.Element {
     void window.api.managerPrefs.get().then((p) => {
       if (p.project) setActiveProject(p.project)
       if (p.filter === 'pending' || p.filter === 'done' || p.filter === 'all') setFilter(p.filter)
-      setViews((p.views ?? {}) as Record<string, TableView>)
+      setCompact(p.compact === true)
+      setViews(
+        Object.fromEntries(Object.entries(p.views ?? {}).map(([k, v]) => [k, normalizeView(v)]))
+      )
       setPrefsLoaded(true)
     })
     void load()
@@ -92,6 +114,32 @@ export default function ManagerApp(): JSX.Element {
       window.api.offSyncState()
     }
   }, [load, loadConnection, loadProjects, loadAiStatus, setSyncState, setActiveProject, setFilter])
+
+  // Esc: cierra el detalle abierto, sale de Ajustes o cierra el gestor (como un modal).
+  // Los menús abiertos consumen su propio Esc (Popover) y no llega aquí.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const el = document.activeElement
+      if (el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return
+      if (view === 'settings') setView('tasks')
+      else if (selectedId) setSelectedId(null)
+      else window.api.hideManager()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view, selectedId, setView])
+
+  // Abrir el detalle de una tarea pedida desde un recordatorio
+  useEffect(() => {
+    if (!window.api) return
+    const select = (id: string): void => {
+      setView('tasks')
+      setSelectedId(id)
+    }
+    window.api.onSelectTask(select)
+    void window.api.takeSelectTask().then((id) => id && select(id))
+  }, [setView])
 
   useEffect(() => {
     if (prefsLoaded) window.api.managerPrefs.set({ project: activeProject })
@@ -154,6 +202,28 @@ export default function ManagerApp(): JSX.Element {
   }, [activeDb, dbs])
 
   const dueLabel = activeDb?.mapping.dueProp ?? 'Fecha límite'
+  const statusLabel = activeDb?.mapping.statusProp ?? 'Estado'
+  const priorityLabel = activeDb?.mapping.priorityProp ?? 'Prioridad'
+
+  // Columna de Notion detrás de cada columna de la tabla (solo dentro de un proyecto:
+  // en "Todos" las columnas mezclan varias databases)
+  const colSchema = (key: string): PropSchema | undefined => {
+    if (!activeDb) return undefined
+    const m = activeDb.mapping
+    const name =
+      key === 'title'
+        ? m.title
+        : key === 'status'
+          ? m.statusProp
+          : key === 'priority'
+            ? m.priorityProp
+            : key === 'due'
+              ? m.dueProp
+              : key.startsWith('prop:')
+                ? key.slice(5)
+                : null
+    return name ? activeDb.schema.find((p) => p.name === name) : undefined
+  }
 
   const columns = useMemo(
     () =>
@@ -175,23 +245,45 @@ export default function ManagerApp(): JSX.Element {
   )
   const filtersOn = tableView.filters.some(isActive)
 
-  // Click en un encabezado: ascendente → descendente → sin orden
-  const sortBy = (col: string): void => {
-    const cur = tableView.sort
-    const sort =
-      cur?.col !== col ? { col, dir: 'asc' as const } : cur.dir === 'asc' ? { col, dir: 'desc' as const } : null
-    updateView({ ...tableView, sort })
+  // Click en un encabezado: agrega la columna como siguiente nivel de orden
+  // (ascendente → descendente → se quita). Así se arma un orden de varias columnas.
+  const sortBy = (col: string): void => updateView({ ...tableView, sorts: cycleSort(tableView.sorts, col) })
+  const sortState = (col: string): { dir: 'asc' | 'desc'; level: number } | null => {
+    const i = tableView.sorts.findIndex((r) => r.col === col)
+    return i < 0 ? null : { dir: tableView.sorts[i].dir, level: tableView.sorts.length > 1 ? i + 1 : 0 }
   }
-  const sortTh = (col: string, label: string, className: string): JSX.Element => (
-    <Th key={col} className={className} sort={tableView.sort?.col === col ? tableView.sort.dir : null} onClick={() => sortBy(col)}>
-      {label}
-    </Th>
-  )
+  const sortTh = (col: string, label: string, className: string): JSX.Element => {
+    const sc = colSchema(col)
+    return (
+      <Th
+        key={col}
+        className={className}
+        sort={sortState(col)}
+        onClick={() => sortBy(col)}
+        onMenu={sc ? (anchor) => setColMenu({ prop: sc.name, anchor }) : undefined}
+      >
+        {label}
+      </Th>
+    )
+  }
   const selected = tasks.find((t) => t.id === selectedId) ?? null
 
   useEffect(() => {
-    if (selectedId && !selected) setSelectedId(null)
-  }, [selectedId, selected])
+    // (esperar a que carguen las tareas: puede venir de un recordatorio al abrir el gestor)
+    if (selectedId && !selected && tasks.length > 0) setSelectedId(null)
+  }, [selectedId, selected, tasks.length])
+
+  // Proyecto sin columna "Recordatorio": botón para crearla en Notion
+  const [reminderBusy, setReminderBusy] = useState(false)
+  const [reminderError, setReminderError] = useState<string | null>(null)
+  const enableReminders = async (): Promise<void> => {
+    if (!activeDb) return
+    setReminderBusy(true)
+    setReminderError(null)
+    const err = await updateSchema(activeDb.id, { kind: 'addProperty', name: 'Recordatorio', type: 'date' })
+    setReminderBusy(false)
+    if (err) setReminderError(err)
+  }
 
   if (view === 'settings') {
     return (
@@ -207,7 +299,8 @@ export default function ManagerApp(): JSX.Element {
     <div className="flex h-full bg-surface-1 text-ink">
       {/* --- Proyectos --- */}
       <aside className="flex w-72 shrink-0 flex-col">
-        <div className="flex items-center gap-3 px-5 pb-4 pt-5">
+        {/* Zona para arrastrar la ventana (no tiene marco) */}
+        <div className="flex items-center gap-3 px-5 pb-4 pt-5 [-webkit-app-region:drag]">
           <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-on-primary shadow-elev-1">
             <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -292,17 +385,55 @@ export default function ManagerApp(): JSX.Element {
             ))}
             <span className="mx-1 h-6 w-px bg-line" />
             <FilterBar view={tableView} cols={columns} onChange={updateView} />
+            {activeDb && !activeDb.mapping.reminderProp && (
+              <button
+                onClick={() => void enableReminders()}
+                disabled={reminderBusy}
+                title={
+                  reminderError ??
+                  'Crea en Notion la columna «Recordatorio» (fecha y hora) para que la app te avise a la hora exacta'
+                }
+                className={`chip ${reminderError ? 'border-danger text-danger' : ''}`}
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                  <path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 00-3 0v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+                </svg>
+                {reminderBusy ? 'Creando…' : reminderError ? 'Reintentar recordatorios' : 'Activar recordatorios'}
+              </button>
+            )}
             <span className="ml-auto text-xs text-ink-2">
               {visible.length} tarea{visible.length === 1 ? '' : 's'}
               {filtersOn && ` de ${baseVisible.length}`}
             </span>
+            <button
+              onClick={toggleCompact}
+              title={compact ? 'Mostrar el texto completo de cada tarea' : 'Recortar los textos largos a 2 líneas'}
+              className="btn btn-sm btn-text"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                {compact ? (
+                  <path d="M4 19h6v-2H4v2zM20 5H4v2h16V5zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z" />
+                ) : (
+                  <path d="M4 15h16v-2H4v2zm0 4h16v-2H4v2zm0-8h16V9H4v2zm0-6v2h16V5H4z" />
+                )}
+              </svg>
+              {compact ? 'Texto completo' : 'Compacto'}
+            </button>
           </div>
 
           <NewTaskBar
             activeProject={activeProject}
             projects={projects}
             defaultProject={dbs.find((d) => d.isDefault)?.title ?? projects[0] ?? ''}
+            aiAvailable={aiText.available}
+            aiOn={aiText.on}
+            onToggleAi={aiText.toggle}
             onAdd={async (title, project) => {
+              // Con IA: llena las columnas del proyecto y muestra la revisión antes de crear
+              if (aiText.on) {
+                void processText(title, project || null)
+                return
+              }
               const parsed = parseQuickInput(title)
               if (parsed) await add({ ...parsed, project: project || null })
             }}
@@ -332,12 +463,26 @@ export default function ManagerApp(): JSX.Element {
                 <thead className="sticky top-0 z-10 bg-surface text-left text-xs font-medium text-ink-2">
                   <tr>
                     <Th className="w-12" />
-                    {sortTh('title', 'Tarea', 'min-w-[320px]')}
+                    {sortTh('title', 'Tarea', compact ? 'min-w-[320px]' : 'min-w-[440px]')}
                     {!activeProject && sortTh('project', 'Proyecto', 'min-w-[170px]')}
-                    {sortTh('status', 'Estado', 'min-w-[150px]')}
-                    {sortTh('priority', 'Prioridad', 'min-w-[140px]')}
+                    {sortTh('status', statusLabel, 'min-w-[150px]')}
+                    {sortTh('priority', priorityLabel, 'min-w-[140px]')}
                     {sortTh('due', dueLabel, 'min-w-[160px]')}
                     {extraColumns.map((c) => sortTh(`prop:${c.name}`, c.name, 'min-w-[160px]'))}
+                    {activeDb && (
+                      <th className="w-12 border-b border-line px-1.5 py-2">
+                        <button
+                          onClick={(e) => setColMenu({ prop: null, anchor: e.currentTarget })}
+                          title="Agregar columna"
+                          aria-label="Agregar columna"
+                          className="icon-btn h-8 w-8"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                          </svg>
+                        </button>
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -348,8 +493,10 @@ export default function ManagerApp(): JSX.Element {
                       db={dbOf(t)}
                       showProject={!activeProject}
                       extraColumns={extraColumns}
+                      trailing={!!activeDb}
+                      compact={compact}
                       selected={t.id === selectedId}
-                      onSelect={() => setSelectedId(t.id)}
+                      onSelect={() => setSelectedId(t.id === selectedId ? null : t.id)}
                       onToggle={() => void toggle(t.id)}
                       onEdit={(patch) => void edit(t.id, patch)}
                     />
@@ -365,6 +512,19 @@ export default function ManagerApp(): JSX.Element {
         <TaskDetail task={selected} db={dbOf(selected)} onClose={() => setSelectedId(null)} />
       )}
 
+      {colMenu && activeDb && (
+        <Popover anchor={colMenu.anchor} onClose={() => setColMenu(null)} width={colMenu.prop ? 280 : 320}>
+          {colMenu.prop ? (
+            (() => {
+              const sc = activeDb.schema.find((p) => p.name === colMenu.prop)
+              return sc ? <ColumnMenu db={activeDb} schema={sc} onDone={() => setColMenu(null)} /> : null
+            })()
+          ) : (
+            <NewPropertyForm db={activeDb} onDone={() => setColMenu(null)} />
+          )}
+        </Popover>
+      )}
+
       {/* Revisión de tareas dictadas por voz */}
       <VoiceReview variant="dialog" />
     </div>
@@ -376,6 +536,8 @@ function TaskRow({
   db,
   showProject,
   extraColumns,
+  trailing,
+  compact,
   selected,
   onSelect,
   onToggle,
@@ -385,6 +547,8 @@ function TaskRow({
   db: NotionDatabaseSummary | undefined
   showProject: boolean
   extraColumns: PropSchema[]
+  trailing: boolean // celda vacía bajo la columna "+"
+  compact: boolean // textos recortados a 2 líneas (si no, se ven completos)
   selected: boolean
   onSelect: () => void
   onToggle: () => void
@@ -396,12 +560,16 @@ function TaskRow({
   const statusValue = statusSchema ? t.props[statusSchema.name] : null
   const priorityValue = prioritySchema ? t.props[prioritySchema.name] : null
 
-  const rowBg = selected ? 'bg-primary-soft/50' : 'hover:bg-ink/[0.04]'
-  const cell = `border-b border-line px-3 py-2.5 align-middle ${rowBg}`
+  const rowBg = selected ? 'bg-primary-soft/50' : 'group-hover/row:bg-ink/[0.04]'
+  const cell = `border-b border-line px-3 py-2.5 ${compact ? 'align-middle' : 'align-top'} ${rowBg}`
+  // Texto completo: respeta saltos de línea y parte palabras muy largas (URLs, correos)
+  const textCls = compact ? 'line-clamp-2' : 'whitespace-pre-wrap break-words'
   const stop = (e: React.MouseEvent): void => e.stopPropagation()
 
+  // La fila no abre el detalle al hacer clic (así se puede seleccionar y copiar texto):
+  // se abre con el botón junto al título.
   return (
-    <tr onClick={onSelect} className="cursor-pointer">
+    <tr className="group/row">
       <td className={`${cell} rounded-l-2xl`}>
         <button
           onClick={(e) => {
@@ -421,20 +589,43 @@ function TaskRow({
         </button>
       </td>
       <td className={cell}>
-        <span className={`line-clamp-2 ${done ? 'text-ink-2/70 line-through' : ''}`}>{t.title}</span>
+        <div className={`flex gap-2 ${compact ? 'items-center' : 'items-start'}`}>
+          <span
+            className={`min-w-0 flex-1 cursor-text select-text ${textCls} ${compact ? '' : 'max-w-[560px] pt-1'} ${
+              done ? 'text-ink-2/70 line-through' : ''
+            }`}
+          >
+            {t.title}
+          </span>
+          <button
+            onClick={onSelect}
+            title={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
+            aria-label={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+              selected
+                ? 'bg-primary text-on-primary'
+                : 'text-ink-2 opacity-50 hover:bg-ink/10 hover:opacity-100 group-hover/row:opacity-100'
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="currentColor">
+              <path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-4 16H5V5h10v14z" />
+            </svg>
+          </button>
+        </div>
       </td>
       {showProject && (
         <td className={cell}>
-          <span className="inline-flex h-6 max-w-[200px] items-center truncate rounded-full bg-[#e9ddff] px-2.5 text-xs font-medium text-[#5a2ca0] dark:bg-[#4a2580] dark:text-[#e9ddff]">
+          <span className="inline-flex h-6 max-w-[200px] select-text items-center truncate rounded-full bg-[#e9ddff] px-2.5 text-xs font-medium text-[#5a2ca0] dark:bg-[#4a2580] dark:text-[#e9ddff]">
             {t.project ?? '—'}
           </span>
         </td>
       )}
       <td className={cell} onClick={stop}>
-        {statusSchema?.options?.length ? (
-          <ChipSelect
-            value={typeof statusValue === 'string' && statusValue ? statusValue : null}
-            options={chipOptions(statusSchema)}
+        {statusSchema && (statusSchema.type === 'status' || statusSchema.type === 'select') ? (
+          <OptionField
+            db={db}
+            schema={statusSchema}
+            value={statusValue}
             onChange={(v) => v && onEdit({ props: { [statusSchema.name]: v } })}
           />
         ) : (
@@ -450,10 +641,10 @@ function TaskRow({
       </td>
       <td className={cell} onClick={stop}>
         {prioritySchema?.type === 'select' ? (
-          <ChipSelect
-            value={typeof priorityValue === 'string' && priorityValue ? priorityValue : null}
-            options={chipOptions(prioritySchema)}
-            allowEmpty
+          <OptionField
+            db={db}
+            schema={prioritySchema}
+            value={priorityValue}
             onChange={(v) => onEdit({ props: { [prioritySchema.name]: v } })}
           />
         ) : (
@@ -474,17 +665,86 @@ function TaskRow({
           }`}
         />
       </td>
-      {extraColumns.map((c, i) => (
-        <td key={c.name} className={`${cell} ${i === extraColumns.length - 1 ? 'rounded-r-2xl' : ''}`}>
-          <ExtraCell schema={c} value={t.props[c.name]} />
-        </td>
-      ))}
+      {extraColumns.map((c, i) => {
+        // Selecciones editables directamente en la tabla (con su propia database)
+        const sc = db?.schema.find((p) => p.name === c.name)
+        const isReminder = !!sc && sc.type === 'date' && db?.mapping.reminderProp === c.name
+        const editable = !!sc && sc.editable && (OPTION_PROP_TYPES.includes(sc.type) || isReminder)
+        const last = !trailing && i === extraColumns.length - 1
+        return (
+          <td
+            key={c.name}
+            className={`${cell} ${last ? 'rounded-r-2xl' : ''}`}
+            onClick={editable ? stop : undefined}
+          >
+            {isReminder ? (
+              <ReminderCell
+                value={t.props[c.name]}
+                done={done}
+                onChange={(v) => onEdit({ props: { [c.name]: v } })}
+              />
+            ) : editable ? (
+              <OptionField
+                db={db}
+                schema={sc}
+                value={t.props[c.name]}
+                onChange={(v) => onEdit({ props: { [c.name]: v } })}
+              />
+            ) : (
+              <ExtraCell schema={c} value={t.props[c.name]} compact={compact} />
+            )}
+          </td>
+        )
+      })}
+      {trailing && <td className={`${cell} rounded-r-2xl`} />}
     </tr>
   )
 }
 
+// Recordatorio: fecha y hora exactas del aviso, editable en la tabla
+function ReminderCell({
+  value,
+  done,
+  onChange
+}: {
+  value: Task['props'][string]
+  done: boolean
+  onChange: (v: string | null) => void
+}): JSX.Element {
+  const at = reminderTime(value)
+  const past = at !== null && at <= Date.now()
+  const local = toLocalInput(typeof value === 'string' ? value : null)
+  const color = !at ? 'text-ink-2/40' : past || done ? 'text-ink-2/60' : 'text-primary'
+  return (
+    <div
+      className="flex items-center gap-1"
+      title={at ? `${past ? 'Sonó' : 'Sonará'} ${formatReminder(at)}` : 'Sin recordatorio'}
+    >
+      <svg viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 ${color}`} fill="currentColor">
+        <path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 00-3 0v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+      </svg>
+      <input
+        type="datetime-local"
+        value={local}
+        onChange={(e) => onChange(e.target.value ? fromLocalInput(e.target.value) : null)}
+        className={`h-7 rounded-full px-2.5 text-xs outline-none transition-colors focus:ring-2 focus:ring-primary ${
+          local ? `bg-surface-2 ${past ? 'text-ink-2 line-through decoration-ink-2/40' : 'text-ink'}` : 'bg-transparent text-ink-2/60 hover:bg-surface-2'
+        }`}
+      />
+    </div>
+  )
+}
+
 // Celda de solo lectura (se edita en el panel lateral). Selects con su color de Notion.
-function ExtraCell({ schema, value }: { schema: PropSchema; value: Task['props'][string] }): JSX.Element {
+function ExtraCell({
+  schema,
+  value,
+  compact
+}: {
+  schema: PropSchema
+  value: Task['props'][string]
+  compact: boolean
+}): JSX.Element {
   const text = formatValue(value, schema.type)
   if (!text) return <span className="text-ink-2/40">—</span>
   if ((schema.type === 'select' || schema.type === 'status') && typeof value === 'string') {
@@ -504,7 +764,15 @@ function ExtraCell({ schema, value }: { schema: PropSchema; value: Task['props']
       </span>
     )
   }
-  return <span className="line-clamp-2 max-w-[260px] text-ink">{text}</span>
+  return (
+    <span
+      className={`block cursor-text select-text text-ink ${
+        compact ? 'line-clamp-2 max-w-[260px]' : 'min-w-[160px] max-w-[360px] whitespace-pre-wrap break-words pt-1'
+      }`}
+    >
+      {text}
+    </span>
+  )
 }
 
 // Chip estático (sin menú) con los mismos colores que ChipSelect
@@ -555,11 +823,17 @@ function NewTaskBar({
   activeProject,
   projects,
   defaultProject,
+  aiAvailable,
+  aiOn,
+  onToggleAi,
   onAdd
 }: {
   activeProject: string
   projects: string[]
   defaultProject: string
+  aiAvailable: boolean
+  aiOn: boolean
+  onToggleAi: () => void
   onAdd: (title: string, project: string) => Promise<void>
 }): JSX.Element {
   const [value, setValue] = useState('')
@@ -582,6 +856,7 @@ function NewTaskBar({
   return (
     <div className="mx-6 mb-3 flex items-center gap-2 rounded-full bg-surface-2 p-1.5 pl-1.5">
       <VoiceButton />
+      {aiAvailable && <AiToggle on={aiOn} onToggle={onToggleAi} />}
       <input
         ref={inputRef}
         value={value}
@@ -590,7 +865,11 @@ function NewTaskBar({
           if (e.key === 'Enter') void submit()
         }}
         placeholder={
-          project ? `Nueva tarea en «${project}»…  (! prioridad)` : 'Nueva tarea…  (! prioridad)'
+          aiOn
+            ? `Describe la tarea con sus datos (cliente, contacto, plan, prioridad…)${project ? ` · «${project}»` : ''}`
+            : project
+              ? `Nueva tarea en «${project}»…  (! prioridad)`
+              : 'Nueva tarea…  (! prioridad)'
         }
         className="h-11 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none placeholder:text-ink-2/80"
       />
@@ -615,37 +894,58 @@ function Th({
   children,
   className = '',
   sort = null,
-  onClick
+  onClick,
+  onMenu
 }: {
   children?: React.ReactNode
   className?: string
-  sort?: 'asc' | 'desc' | null
+  sort?: { dir: 'asc' | 'desc'; level: number } | null // level > 0 = posición en un orden múltiple
   onClick?: () => void
+  onMenu?: (anchor: HTMLElement) => void // renombrar / opciones / eliminar la columna
 }): JSX.Element {
   return (
-    <th className={`whitespace-nowrap border-b border-line px-1.5 py-2 font-medium ${className}`}>
-      {onClick ? (
-        <button
-          onClick={onClick}
-          title="Ordenar por esta columna"
-          className={`group inline-flex h-8 items-center gap-1 rounded-full px-1.5 transition-colors hover:bg-ink/5 ${
-            sort ? 'text-primary' : ''
-          }`}
-        >
-          {children}
-          <svg
-            viewBox="0 0 24 24"
-            className={`h-4 w-4 transition-all ${sort ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'} ${
-              sort === 'desc' ? 'rotate-180' : ''
+    <th className={`group/th whitespace-nowrap border-b border-line px-1.5 py-2 font-medium ${className}`}>
+      <span className="inline-flex items-center">
+        {onClick ? (
+          <button
+            onClick={onClick}
+            title={sort ? 'Clic: cambiar dirección o quitar del orden' : 'Ordenar también por esta columna'}
+            className={`group inline-flex h-8 items-center gap-1 rounded-full px-1.5 transition-colors hover:bg-ink/5 ${
+              sort ? 'text-primary' : ''
             }`}
-            fill="currentColor"
           >
-            <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
-          </svg>
-        </button>
-      ) : (
-        children
-      )}
+            {children}
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-4 w-4 transition-all ${sort ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'} ${
+                sort?.dir === 'desc' ? 'rotate-180' : ''
+              }`}
+              fill="currentColor"
+            >
+              <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+            </svg>
+            {!!sort?.level && (
+              <span className="-ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-on-primary">
+                {sort.level}
+              </span>
+            )}
+          </button>
+        ) : (
+          children
+        )}
+        {onMenu && (
+          <button
+            onClick={(e) => onMenu(e.currentTarget)}
+            title="Opciones de la columna"
+            aria-label="Opciones de la columna"
+            className="flex h-7 w-7 items-center justify-center rounded-full opacity-0 transition-opacity hover:bg-ink/10 focus:opacity-100 group-hover/th:opacity-100"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 2a2 2 0 100 4 2 2 0 000-4zm0 6a2 2 0 100 4 2 2 0 000-4z" />
+            </svg>
+          </button>
+        )}
+      </span>
     </th>
   )
 }

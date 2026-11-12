@@ -7,8 +7,8 @@ const DEFAULT_WIDTH = 1320
 const DEFAULT_HEIGHT = 840
 const GAP = 8 // separación entre la burbuja y el gestor
 
-// "Gestor de tareas": ventana grande y redimensionable (con marco normal) para ver todas
-// las tareas en tabla, filtrar por proyecto y editar todas sus propiedades de Notion.
+// "Gestor de tareas": ventana grande tipo modal (sin marco, siempre encima) pegada a la
+// burbuja. Se oculta al hacer clic fuera (pierde el foco) o con Esc, como el panel.
 
 let manager: BrowserWindow | null = null
 // Al cerrar el gestor solo se oculta (reabre al instante y conserva el proyecto elegido);
@@ -18,12 +18,20 @@ app.on('before-quit', () => {
   quitting = true
 })
 
-// Click en la burbuja: si el gestor está al frente se oculta; si no, se muestra.
+// En Linux, al cerrarse el menú del AppIndicator puede llegar un blur espurio justo
+// después de mostrar la ventana.
+let shownAt = 0
+// Al pulsar la burbuja con el gestor abierto, puede llegar primero el blur (oculta) y
+// luego el click: sin esto lo volvería a abrir.
+let hiddenByBlurAt = 0
+
+// Click en la burbuja: si el gestor está visible se oculta; si no, se muestra.
 export function toggleManager(): void {
-  if (manager && !manager.isDestroyed() && manager.isVisible() && manager.isFocused()) {
+  if (manager && !manager.isDestroyed() && manager.isVisible()) {
     manager.hide()
     return
   }
+  if (Date.now() - hiddenByBlurAt < 300) return
   openManager()
 }
 
@@ -42,6 +50,10 @@ export function takePendingSelect(): string | null {
   const id = pendingSelect
   pendingSelect = null
   return id
+}
+
+export function hideManager(): void {
+  if (manager && !manager.isDestroyed()) manager.hide()
 }
 
 // Ubica el gestor pegado a la burbuja (del lado que da al centro de la pantalla),
@@ -75,12 +87,17 @@ function placeWindow(win: BrowserWindow): void {
   win.setBounds({ x: Math.round(x), y: Math.round(y), width, height }, false)
 }
 
+function present(win: BrowserWindow): void {
+  shownAt = Date.now()
+  win.show()
+  win.focus()
+}
+
 export function openManager(): void {
   if (manager && !manager.isDestroyed()) {
     if (manager.isMinimized()) manager.restore()
     placeWindow(manager)
-    manager.show()
-    manager.focus()
+    present(manager)
     return
   }
 
@@ -92,6 +109,10 @@ export function openManager(): void {
     title: 'Gestor de tareas',
     icon: appIconPath,
     show: false,
+    frame: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    fullscreenable: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -102,7 +123,15 @@ export function openManager(): void {
   })
   win.setMenuBarVisibility(false)
   placeWindow(win)
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => present(win))
+
+  // Clic fuera (pierde el foco) → ocultar, como un modal
+  win.on('blur', () => {
+    if (Date.now() - shownAt < 400) return
+    if (win.webContents.isDevToolsOpened()) return
+    hiddenByBlurAt = Date.now()
+    win.hide()
+  })
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault()

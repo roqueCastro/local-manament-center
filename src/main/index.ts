@@ -12,7 +12,7 @@ import {
   showPanel,
   togglePanel
 } from './window'
-import { openManager, openManagerAt, takePendingSelect, toggleManager } from './manager'
+import { hideManager, openManager, openManagerAt, takePendingSelect, toggleManager } from './manager'
 import { initReminders, refreshReminders } from './reminders'
 import { getAutostart, setAutostart } from './autostart'
 import { initSyncState, onDataChanged, onSyncStateChange, startAutoSync, stopAutoSync } from './sync'
@@ -81,6 +81,7 @@ app.whenReady().then(() => {
     hidePanel()
     openManager()
   })
+  ipcMain.on('manager:hide', () => hideManager())
 
   // Atajo global para abrir/cerrar el panel desde cualquier app
   const shortcut = 'CommandOrControl+Shift+Space'

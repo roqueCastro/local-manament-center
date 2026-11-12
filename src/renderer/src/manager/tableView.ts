@@ -37,12 +37,37 @@ export interface ColFilter {
   bool?: boolean // kind "checkbox"
 }
 
-export interface TableView {
-  filters: ColFilter[]
-  sort: { col: string; dir: 'asc' | 'desc' } | null
+export interface SortRule {
+  col: string
+  dir: 'asc' | 'desc'
 }
 
-export const EMPTY_VIEW: TableView = { filters: [], sort: null }
+export interface TableView {
+  filters: ColFilter[]
+  // Orden por varias columnas: la primera manda; las siguientes desempatan
+  sorts: SortRule[]
+}
+
+export const EMPTY_VIEW: TableView = { filters: [], sorts: [] }
+
+// Vista guardada → formato actual (las vistas antiguas tenían un único `sort`)
+export function normalizeView(raw: unknown): TableView {
+  const v = (raw ?? {}) as { filters?: ColFilter[]; sorts?: SortRule[]; sort?: SortRule | null }
+  const sorts = Array.isArray(v.sorts) ? v.sorts : v.sort ? [v.sort] : []
+  return {
+    filters: Array.isArray(v.filters) ? v.filters : [],
+    sorts: sorts.filter((r) => r && typeof r.col === 'string' && (r.dir === 'asc' || r.dir === 'desc'))
+  }
+}
+
+// Click en un encabezado: si la columna no ordena, se agrega como siguiente nivel
+// (ascendente); si ya ordena: ascendente → descendente → se quita.
+export function cycleSort(sorts: SortRule[], col: string): SortRule[] {
+  const cur = sorts.find((r) => r.col === col)
+  if (!cur) return [...sorts, { col, dir: 'asc' }]
+  if (cur.dir === 'asc') return sorts.map((r) => (r.col === col ? { col, dir: 'desc' as const } : r))
+  return sorts.filter((r) => r.col !== col)
+}
 
 // ---- Columnas ----
 
@@ -219,21 +244,27 @@ export function applyView(tasks: Task[], view: TableView, cols: ColDef[]): Task[
     ? tasks.filter((t) => filters.every((f) => matches(t, f, byKey.get(f.col)!)))
     : tasks.slice()
 
-  const sortCol = view.sort ? byKey.get(view.sort.col) : undefined
-  if (sortCol && view.sort) {
-    const dir = view.sort.dir === 'asc' ? 1 : -1
+  const rules = view.sorts
+    .map((r) => ({ col: byKey.get(r.col), mul: r.dir === 'asc' ? 1 : -1 }))
+    .filter((r): r is { col: ColDef; mul: 1 | -1 } => !!r.col)
+  if (rules.length) {
     out = out
-      .map((t, i) => ({ t, i, v: sortCol.sortValue(t) }))
+      .map((t, i) => ({ t, i, v: rules.map((r) => r.col.sortValue(t)) }))
       .sort((a, b) => {
-        // Vacíos siempre al final, en cualquier dirección
-        if (a.v === null && b.v === null) return a.i - b.i
-        if (a.v === null) return 1
-        if (b.v === null) return -1
-        const c =
-          typeof a.v === 'number' && typeof b.v === 'number'
-            ? a.v - b.v
-            : String(a.v).localeCompare(String(b.v), 'es', { numeric: true })
-        return c !== 0 ? c * dir : a.i - b.i
+        for (let k = 0; k < rules.length; k++) {
+          const x = a.v[k]
+          const y = b.v[k]
+          // Vacíos siempre al final, en cualquier dirección
+          if (x === null && y === null) continue
+          if (x === null) return 1
+          if (y === null) return -1
+          const c =
+            typeof x === 'number' && typeof y === 'number'
+              ? x - y
+              : String(x).localeCompare(String(y), 'es', { numeric: true })
+          if (c !== 0) return c * rules[k].mul
+        }
+        return a.i - b.i
       })
       .map((x) => x.t)
   }

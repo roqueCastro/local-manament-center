@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTasks } from '../store'
 import type { NotionDatabaseSummary, PropSchema, PropValue, Task } from '../../../shared/types'
 import { PropEditor, formatDate } from './PropEditor'
 import { ChipSelect } from '../ui/ChipSelect'
 import { PRIORITY_LEVELS } from '../ui/colors'
+import { Popover } from '../ui/Popover'
+import { ColumnMenu, NewPropertyForm } from './ColumnMenus'
 
 interface Props {
   task: Task
@@ -20,6 +22,18 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
 
   const [title, setTitle] = useState(task.title)
   useEffect(() => setTitle(task.title), [task.id, task.title])
+  // El título crece con su contenido (sin cortar textos largos)
+  const titleRef = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [title])
+  // Menú de una columna (al pulsar su nombre) o formulario de columna nueva
+  const [colMenu, setColMenu] = useState<{ prop: string | null; anchor: HTMLElement } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => setConfirmDelete(false), [task.id])
 
   const commitTitle = (): void => {
     const t = title.trim()
@@ -52,8 +66,9 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
           )}
         </button>
         <textarea
+          ref={titleRef}
           value={title}
-          rows={Math.min(6, Math.max(1, Math.ceil(title.length / 30)))}
+          rows={1}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={commitTitle}
           onKeyDown={(e) => {
@@ -63,7 +78,7 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
             }
             if (e.key === 'Escape') setTitle(task.title)
           }}
-          className="flex-1 resize-none overflow-hidden rounded-lg bg-transparent px-1 text-xl font-normal leading-snug text-ink outline-none focus:bg-surface-1"
+          className="scroll-thin max-h-[40vh] flex-1 resize-none overflow-y-auto rounded-lg bg-transparent px-1 text-xl font-normal leading-snug text-ink outline-none focus:bg-surface-1"
         />
         <button onClick={onClose} aria-label="Cerrar" className="icon-btn -mr-2 -mt-1">
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -86,9 +101,15 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
 
         {fields.length > 0 ? (
           fields.map((f) => (
-            <Field key={f.name} label={f.name} hint={f.editable ? undefined : 'solo lectura'}>
+            <Field
+              key={f.name}
+              label={f.name}
+              hint={f.editable ? undefined : 'solo lectura'}
+              onLabelClick={db ? (anchor) => setColMenu({ prop: f.name, anchor }) : undefined}
+            >
               <PropEditor
                 schema={f}
+                db={db}
                 value={task.props[f.name]}
                 onChange={(v) => setProp(f.name, v)}
               />
@@ -119,28 +140,63 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
           </>
         )}
 
+        {db && (
+          <button
+            onClick={(e) => setColMenu({ prop: null, anchor: e.currentTarget })}
+            className="btn btn-sm btn-text -ml-2 mt-1"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+            </svg>
+            Agregar columna
+          </button>
+        )}
+
         <p className="pt-3 text-xs text-ink-2">
           Creada {formatDate(task.createdAt)} ·{' '}
           {task.synced ? 'sincronizada con Notion' : 'pendiente de sincronizar'}
         </p>
       </div>
 
-      <div className="flex justify-end px-4 pb-4 pt-2">
-        <button
-          onClick={() => {
-            if (window.confirm(`¿Borrar la tarea "${task.title}"? Se archivará en Notion.`)) {
-              void remove(task.id)
-              onClose()
-            }
-          }}
-          className="btn btn-danger"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-            <path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-          </svg>
-          Borrar tarea
-        </button>
+      <div className="flex items-center justify-end gap-2 px-4 pb-4 pt-2">
+        {confirmDelete ? (
+          <>
+            <span className="mr-auto pl-1 text-xs text-ink-2">¿Borrar? Se archivará en Notion.</span>
+            <button onClick={() => setConfirmDelete(false)} className="btn btn-sm btn-text">
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                void remove(task.id)
+                onClose()
+              }}
+              className="btn btn-sm btn-danger"
+            >
+              Borrar
+            </button>
+          </>
+        ) : (
+          <button onClick={() => setConfirmDelete(true)} className="btn btn-danger">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+            </svg>
+            Borrar tarea
+          </button>
+        )}
       </div>
+
+      {colMenu && db && (
+        <Popover anchor={colMenu.anchor} onClose={() => setColMenu(null)} width={colMenu.prop ? 280 : 320}>
+          {colMenu.prop ? (
+            (() => {
+              const sc = db.schema.find((p) => p.name === colMenu.prop)
+              return sc ? <ColumnMenu db={db} schema={sc} onDone={() => setColMenu(null)} /> : null
+            })()
+          ) : (
+            <NewPropertyForm db={db} onDone={() => setColMenu(null)} />
+          )}
+        </Popover>
+      )}
     </aside>
   )
 }
@@ -148,18 +204,32 @@ export function TaskDetail({ task, db, onClose }: Props): JSX.Element {
 function Field({
   label,
   hint,
+  onLabelClick,
   children
 }: {
   label: string
   hint?: string
+  onLabelClick?: (anchor: HTMLElement) => void
   children: React.ReactNode
 }): JSX.Element {
   return (
     <div className="grid grid-cols-[130px_1fr] items-start gap-3 rounded-xl py-1.5">
-      <p className="truncate pt-1.5 text-[13px] text-ink-2" title={label}>
-        {label}
-        {hint && <span className="block text-[10px] text-ink-2/70">{hint}</span>}
-      </p>
+      {onLabelClick ? (
+        <button
+          type="button"
+          onClick={(e) => onLabelClick(e.currentTarget)}
+          title="Renombrar, editar opciones o eliminar esta columna"
+          className="-ml-2 truncate rounded-lg px-2 pb-1 pt-1.5 text-left text-[13px] text-ink-2 hover:bg-ink/5"
+        >
+          {label}
+          {hint && <span className="block text-[10px] text-ink-2/70">{hint}</span>}
+        </button>
+      ) : (
+        <p className="truncate pt-1.5 text-[13px] text-ink-2" title={label}>
+          {label}
+          {hint && <span className="block text-[10px] text-ink-2/70">{hint}</span>}
+        </p>
+      )}
       <div className="min-w-0">{children}</div>
     </div>
   )

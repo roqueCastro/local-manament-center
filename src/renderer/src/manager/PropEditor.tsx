@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NotionDatabaseSummary, PropSchema, PropValue } from '../../../shared/types'
 import type { ChipOption } from '../ui/ChipSelect'
 import { OptionField } from './OptionField'
@@ -163,6 +163,14 @@ function TextField({
 }): JSX.Element {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
+  // Textos largos: la caja crece con el contenido (también con líneas largas sin saltos)
+  const areaRef = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = areaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight + 2}px`
+  }, [draft, multiline])
 
   const commit = (): void => {
     if (draft !== value) onCommit(draft.trim())
@@ -171,8 +179,9 @@ function TextField({
   if (multiline) {
     return (
       <textarea
+        ref={areaRef}
         value={draft}
-        rows={Math.min(5, Math.max(1, draft.split('\n').length))}
+        rows={1}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -182,7 +191,7 @@ function TextField({
           }
           if (e.key === 'Escape') setDraft(value)
         }}
-        className={`${inputCls} resize-none`}
+        className={`${inputCls} scroll-thin max-h-[320px] resize-none overflow-y-auto`}
       />
     )
   }

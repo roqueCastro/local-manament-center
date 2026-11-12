@@ -268,6 +268,7 @@ export interface ManagerPrefs {
   filter: 'pending' | 'done' | 'all'
   views: Record<string, unknown> // filtros y orden de la tabla por proyecto ('*' = Todos)
   aiText?: boolean // procesar con IA el texto de "Nueva tarea" (por defecto sí, si hay key)
+  compact?: boolean // tabla compacta (textos recortados a 2 líneas); por defecto texto completo
 }
 
 export interface WindowApi {
@@ -288,6 +289,7 @@ export interface WindowApi {
   takeSelectTask: () => Promise<string | null>
   hidePanel: () => void
   openManager: () => void // abre la ventana grande "Gestor de tareas"
+  hideManager: () => void
   managerPrefs: {
     get: () => Promise<ManagerPrefs>
     set: (patch: Partial<ManagerPrefs>) => void

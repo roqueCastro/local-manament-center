@@ -83,6 +83,7 @@ const api: WindowApi = {
   takeSelectTask: () => ipcRenderer.invoke('manager:takeSelect') as Promise<string | null>,
   hidePanel: () => ipcRenderer.send('panel:hide'),
   openManager: () => ipcRenderer.send('manager:open'),
+  hideManager: () => ipcRenderer.send('manager:hide'),
   managerPrefs: {
     get: () => ipcRenderer.invoke('prefs:getManager') as Promise<ManagerPrefs>,
     set: (patch: Partial<ManagerPrefs>) => ipcRenderer.send('prefs:setManager', patch)
