@@ -29,20 +29,28 @@ async function call(
   method: 'GET' | 'POST' | 'PATCH',
   body?: unknown
 ): Promise<any> {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new NotionError(res.status, data?.code ?? 'unknown', data?.message ?? res.statusText)
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Notion-Version': NOTION_VERSION,
+        'Content-Type': 'application/json'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    })
+    // Límite de peticiones (≈3/s): esperar lo que indique Notion y reintentar
+    if (res.status === 429 && attempt < 4) {
+      const wait = Number(res.headers.get('retry-after')) || 1
+      await new Promise((r) => setTimeout(r, Math.min(wait, 10) * 1000))
+      continue
+    }
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new NotionError(res.status, data?.code ?? 'unknown', data?.message ?? res.statusText)
+    }
+    return data
   }
-  return data
 }
 
 // ---- Auto-descubrimiento del esquema ----
