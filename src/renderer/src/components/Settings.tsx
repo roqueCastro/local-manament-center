@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTasks } from '../store'
 import { Switch } from '../ui/Switch'
 
@@ -19,6 +19,10 @@ export function Settings(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [groqKey, setGroqKey] = useState('')
+  const [autostart, setAutostart] = useState<boolean | null>(null)
+  useEffect(() => {
+    void window.api.autostart.get().then(setAutostart)
+  }, [])
 
   const connected = notion?.connected
   const activeCount = notion?.databases.filter((d) => d.enabled).length ?? 0
@@ -208,6 +212,36 @@ export function Settings(): JSX.Element {
               </div>
             </>
           )}
+        </section>
+
+        {/* --- Recordatorios --- */}
+        <section className="card space-y-3 p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#fdefc3] text-[#6d5000] dark:bg-[#5c4300] dark:text-[#fdefc3]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                <path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 00-3 0v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" />
+              </svg>
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-medium">Recordatorios</h2>
+              <p className="text-xs text-ink-2">
+                Columna «Recordatorio» (fecha y hora) en Notion · la app te avisa a esa hora con sonido
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-surface-1 px-4 py-3">
+            <div>
+              <p className="text-sm">Iniciar con el sistema</p>
+              <p className="text-xs text-ink-2">
+                La app arranca sola al encender el computador para que ningún recordatorio se pierda.
+              </p>
+            </div>
+            <Switch
+              checked={!!autostart}
+              disabled={autostart === null}
+              onChange={(v) => void window.api.autostart.set(v).then(setAutostart)}
+            />
+          </div>
         </section>
 
         {/* --- IA por voz (Groq) --- */}

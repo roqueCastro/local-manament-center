@@ -12,7 +12,9 @@ import {
   showPanel,
   togglePanel
 } from './window'
-import { openManager, toggleManager } from './manager'
+import { openManager, openManagerAt, takePendingSelect, toggleManager } from './manager'
+import { initReminders, refreshReminders } from './reminders'
+import { getAutostart, setAutostart } from './autostart'
 import { initSyncState, onDataChanged, onSyncStateChange, startAutoSync, stopAutoSync } from './sync'
 
 // Garantizar una sola instancia de la app. app.quit() es asíncrono, así que se sale
@@ -54,7 +56,23 @@ app.whenReady().then(() => {
   onDataChanged(() => {
     broadcast('data:changed')
     updateBubbleBadge()
+    refreshReminders()
   })
+
+  // Recordatorios: aviso a la hora exacta (+ perdidos al abrir la app)
+  initReminders({
+    openTask: (taskId) => {
+      hidePanel()
+      openManagerAt(taskId)
+    },
+    changed: () => {
+      broadcast('data:changed')
+      updateBubbleBadge()
+    }
+  })
+  ipcMain.handle('manager:takeSelect', () => takePendingSelect())
+  ipcMain.handle('autostart:get', () => getAutostart())
+  ipcMain.handle('autostart:set', (_e, on: boolean) => setAutostart(on))
 
   // Permitir que el renderer oculte el panel (ej: tras crear una tarea con Esc)
   ipcMain.on('panel:hide', () => hidePanel())

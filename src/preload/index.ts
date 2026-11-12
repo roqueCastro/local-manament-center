@@ -9,6 +9,8 @@ import type {
   SchemaResult,
   SyncState,
   ManagerPrefs,
+  ReminderAction,
+  ReminderAlert,
   Task,
   TaskPatch,
   WindowApi
@@ -60,6 +62,23 @@ const api: WindowApi = {
       ipcRenderer.on('bubble:badge', (_e, pending: number) => cb(pending))
     }
   },
+  reminders: {
+    get: () => ipcRenderer.invoke('reminders:get') as Promise<{ alerts: ReminderAlert[]; sound: boolean }>,
+    act: (taskId: string, action: ReminderAction, minutes?: number) =>
+      ipcRenderer.invoke('reminders:act', taskId, action, minutes) as Promise<void>,
+    onChanged: (cb: () => void) => {
+      ipcRenderer.on('reminders:changed', () => cb())
+    },
+    resize: (height: number) => ipcRenderer.send('reminders:resize', height)
+  },
+  autostart: {
+    get: () => ipcRenderer.invoke('autostart:get') as Promise<boolean>,
+    set: (on: boolean) => ipcRenderer.invoke('autostart:set', on) as Promise<boolean>
+  },
+  onSelectTask: (cb: (taskId: string) => void) => {
+    ipcRenderer.on('manager:select', (_e, taskId: string) => cb(taskId))
+  },
+  takeSelectTask: () => ipcRenderer.invoke('manager:takeSelect') as Promise<string | null>,
   hidePanel: () => ipcRenderer.send('panel:hide'),
   openManager: () => ipcRenderer.send('manager:open'),
   managerPrefs: {

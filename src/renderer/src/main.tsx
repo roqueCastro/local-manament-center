@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import ManagerApp from './manager/ManagerApp'
+import ReminderApp from './reminder/ReminderApp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './index.css'
 
@@ -25,7 +26,13 @@ window.addEventListener('unhandledrejection', (e) => {
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      {window.location.hash === '#manager' ? <ManagerApp /> : <App />}
+      {window.location.hash === '#manager' ? (
+        <ManagerApp />
+      ) : window.location.hash === '#reminder' ? (
+        <ReminderApp />
+      ) : (
+        <App />
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 )

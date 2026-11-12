@@ -27,6 +27,23 @@ export function toggleManager(): void {
   openManager()
 }
 
+// Abrir el gestor con el detalle de una tarea (ej. desde un recordatorio). Si la ventana aún
+// está cargando, el renderer la pide al montarse (takePendingSelect).
+let pendingSelect: string | null = null
+export function openManagerAt(taskId: string): void {
+  pendingSelect = taskId
+  openManager()
+  if (manager && !manager.isDestroyed() && !manager.webContents.isLoading()) {
+    manager.webContents.send('manager:select', taskId)
+    pendingSelect = null
+  }
+}
+export function takePendingSelect(): string | null {
+  const id = pendingSelect
+  pendingSelect = null
+  return id
+}
+
 // Ubica el gestor pegado a la burbuja (del lado que da al centro de la pantalla),
 // como el panel. Sin burbuja visible: centrado en la pantalla del cursor.
 // Conserva el tamaño que tenga la ventana, ajustándolo si no cabe.

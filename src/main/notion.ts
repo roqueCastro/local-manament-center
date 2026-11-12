@@ -1,6 +1,7 @@
 import { EDITABLE_PROP_TYPES } from '../shared/types'
 import type { PropSchema, PropValue, Task } from '../shared/types'
 import type { NotionDatabase, NotionMapping } from './settings'
+import { REMINDER_RE } from '../shared/dates'
 
 const API = 'https://api.notion.com/v1'
 const NOTION_VERSION = '2022-06-28'
@@ -195,9 +196,16 @@ export function mapDatabase(db: any): {
     }
   }
 
+  // Recordatorio: fecha (con hora) cuyo nombre lo indique
+  const reminderEntry = entries.find((e) => e.type === 'date' && REMINDER_RE.test(e.name))
+
   // Fecha de vencimiento: preferir "límite/vencimiento/due"; nunca creación/finalización
+  // ni el recordatorio
   const dateEntries = entries.filter(
-    (e) => e.type === 'date' && !/creaci|creat|finaliz|complet|cierre|termin/i.test(e.name)
+    (e) =>
+      e.type === 'date' &&
+      !/creaci|creat|finaliz|complet|cierre|termin/i.test(e.name) &&
+      !REMINDER_RE.test(e.name)
   )
   const dueEntry =
     pickByName(dateEntries, /l[ií]mite|venc|due|deadline|entrega|plazo/i) ??
@@ -222,7 +230,8 @@ export function mapDatabase(db: any): {
     priorityProp: priorityEntry?.name ?? null,
     priorityKind,
     priorityOptions,
-    tagsProp: tagsEntry?.name ?? null
+    tagsProp: tagsEntry?.name ?? null,
+    reminderProp: reminderEntry?.name ?? null
   }
 
   return { title: databaseTitle(db), mapping, schema: schemaOf(entries) }

@@ -18,6 +18,7 @@ export interface NotionMapping {
   // Opciones del select de prioridad equivalentes a 3/2/1 (Alta/Media/Baja)
   priorityOptions: { high: string | null; medium: string | null; low: string | null } | null
   tagsProp: string | null
+  reminderProp?: string | null // columna de fecha y hora del recordatorio
 }
 
 // Cada database de Notion compartida con la integración = un proyecto en la app.
@@ -50,10 +51,17 @@ export interface UiSettings {
   manager?: ManagerPrefs // proyecto, filtro y vistas de tabla del gestor
 }
 
+// Recordatorios ya avisados (clave tarea|momento) y pospuestos (tarea → ms)
+export interface ReminderState {
+  fired: string[]
+  snoozed: Record<string, number>
+}
+
 interface Settings {
   notion: NotionSettings
   groq: GroqSettings
   ui: UiSettings
+  reminders: ReminderState
 }
 
 const DEFAULTS: Settings = {
@@ -74,7 +82,8 @@ const DEFAULTS: Settings = {
   ui: {
     bubbleEnabled: true,
     bubblePosition: null
-  }
+  },
+  reminders: { fired: [], snoozed: {} }
 }
 
 let cache: Settings | null = null
@@ -91,7 +100,8 @@ function read(): Settings {
       cache = {
         notion: { ...DEFAULTS.notion, ...(raw.notion ?? {}) },
         groq: { ...DEFAULTS.groq, ...(raw.groq ?? {}) },
-        ui: { ...DEFAULTS.ui, ...(raw.ui ?? {}) }
+        ui: { ...DEFAULTS.ui, ...(raw.ui ?? {}) },
+        reminders: { ...DEFAULTS.reminders, ...(raw.reminders ?? {}) }
       }
     } else {
       cache = structuredClone(DEFAULTS)
@@ -269,5 +279,18 @@ export function getUiSettings(): UiSettings {
 export function saveUiSettings(patch: Partial<UiSettings>): void {
   const s = read()
   s.ui = { ...s.ui, ...patch }
+  write(s)
+}
+
+// ---- Recordatorios ----
+
+export function getReminderState(): ReminderState {
+  return read().reminders
+}
+
+export function saveReminderState(r: ReminderState): void {
+  const s = read()
+  // Solo las últimas claves avisadas (evita que crezca sin límite)
+  s.reminders = { fired: r.fired.slice(-1000), snoozed: r.snoozed }
   write(s)
 }

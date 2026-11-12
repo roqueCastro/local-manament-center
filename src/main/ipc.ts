@@ -7,6 +7,7 @@ import { getUiSettings, isDatabaseExcluded, saveUiSettings } from './settings'
 import type { ManagerPrefs } from '../shared/types'
 import { updateBubbleBadge } from './bubble'
 import { updateSchema } from './schema'
+import { refreshReminders } from './reminders'
 import { clearAiKey, getAiStatus, setAiKey, voiceFromAudio } from './ai'
 import {
   connectNotion,
@@ -25,6 +26,7 @@ import {
 function afterMutation(e: IpcMainInvokeEvent): void {
   requestSync()
   updateBubbleBadge()
+  refreshReminders()
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('data:changed')
   }

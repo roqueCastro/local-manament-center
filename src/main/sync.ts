@@ -98,7 +98,8 @@ function toSummary(m: NotionMapping): NotionMappingSummary {
     statusKind: m.statusKind,
     dueProp: m.dueProp,
     priorityProp: m.priorityProp,
-    tagsProp: m.tagsProp
+    tagsProp: m.tagsProp,
+    reminderProp: m.reminderProp ?? null
   }
 }
 

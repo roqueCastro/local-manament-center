@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { NotionDatabaseSummary, PropSchema, PropValue } from '../../../shared/types'
 import type { ChipOption } from '../ui/ChipSelect'
 import { OptionField } from './OptionField'
+import { fromLocalInput, isReminderName, toLocalInput } from '../../../shared/dates'
 
 // Opciones de un select/status de Notion con su color, para ChipSelect.
 export function chipOptions(schema: PropSchema | undefined): ChipOption[] {
@@ -24,6 +25,16 @@ export function formatDate(iso: string | null | undefined): string {
   // Fechas sin hora: interpretarlas como locales (evita que "2026-11-10" se vea como el 9)
   const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00`) : new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
+  // Con hora (recordatorios, fecha de creación de Notion…): mostrarla también
+  if (/T\d{2}:\d{2}/.test(iso)) {
+    return d.toLocaleString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
   return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -53,6 +64,31 @@ export function PropEditor({ schema, value, onChange, db }: Props): JSX.Element 
     case 'multi_select':
       return <OptionField db={db} schema={schema} value={value} onChange={onChange} placeholder="Elegir…" />
     case 'date': {
+      // Recordatorio (o fecha que ya tiene hora): día y hora exactos
+      if (isReminderName(schema.name) || (typeof value === 'string' && /T\d{2}:\d{2}/.test(value))) {
+        const local = toLocalInput(typeof value === 'string' ? value : null)
+        return (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="datetime-local"
+              value={local}
+              onChange={(e) => onChange(e.target.value ? fromLocalInput(e.target.value) : null)}
+              className={inputCls}
+            />
+            {local && (
+              <button
+                onClick={() => onChange(null)}
+                className="icon-btn h-8 w-8 hover:text-danger"
+                title="Quitar"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )
+      }
       const current = typeof value === 'string' ? value.slice(0, 10) : ''
       return (
         <div className="flex items-center gap-1.5">

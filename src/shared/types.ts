@@ -127,6 +127,7 @@ export interface NotionMappingSummary {
   dueProp: string | null
   priorityProp: string | null
   tagsProp: string | null
+  reminderProp?: string | null // columna "Recordatorio" (fecha y hora del aviso)
 }
 
 // Database de Notion accesible por la integración (= un proyecto en la app)
@@ -235,6 +236,27 @@ export interface BubbleApi {
   onBadge: (cb: (pending: number) => void) => void
 }
 
+// ---- Recordatorios ----
+
+// Aviso activo en la ventana de recordatorios
+export interface ReminderAlert {
+  taskId: string
+  title: string
+  project: string | null
+  at: string // ISO del momento programado (o del pospuesto)
+  missed: boolean // la app estaba cerrada a esa hora
+}
+
+export type ReminderAction = 'dismiss' | 'done' | 'open' | 'snooze'
+
+export interface RemindersApi {
+  // Avisos activos; `sound` = hay avisos nuevos (suena una vez)
+  get: () => Promise<{ alerts: ReminderAlert[]; sound: boolean }>
+  act: (taskId: string, action: ReminderAction, minutes?: number) => Promise<void>
+  onChanged: (cb: () => void) => void
+  resize: (height: number) => void // la ventana se ajusta a su contenido
+}
+
 // Preferencias del gestor que se recuerdan entre aperturas y reinicios
 export interface ManagerPrefs {
   project: string // proyecto seleccionado ('' = Todos)
@@ -249,6 +271,15 @@ export interface WindowApi {
   projects: ProjectsApi
   ai: AiApi
   bubble: BubbleApi
+  reminders: RemindersApi
+  // Iniciar la app con el sistema (para no perder recordatorios)
+  autostart: {
+    get: () => Promise<boolean>
+    set: (on: boolean) => Promise<boolean>
+  }
+  // El gestor recibe "abrir esta tarea" (desde un recordatorio)
+  onSelectTask: (cb: (taskId: string) => void) => void
+  takeSelectTask: () => Promise<string | null>
   hidePanel: () => void
   openManager: () => void // abre la ventana grande "Gestor de tareas"
   managerPrefs: {
