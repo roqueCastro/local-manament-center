@@ -1,11 +1,12 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
-import type { NewTaskInput, TaskPatch } from '../shared/types'
+import type { NewTaskInput, SchemaChange, TaskPatch } from '../shared/types'
 import { listTasks, removeTask } from './db'
 import { createTaskSvc, toggleTaskSvc, updateTaskSvc } from './tasks'
 import { getUiSettings, isDatabaseExcluded, saveUiSettings } from './settings'
 import type { ManagerPrefs } from '../shared/types'
 import { updateBubbleBadge } from './bubble'
+import { updateSchema } from './schema'
 import { clearAiKey, getAiStatus, setAiKey, voiceFromAudio } from './ai'
 import {
   connectNotion,
@@ -76,6 +77,16 @@ export function registerIpc(): void {
   ipcMain.handle('notion:setEnabled', (_e, id: string, enabled: boolean) =>
     setDatabaseEnabled(id, enabled)
   )
+  // Columnas y opciones: se aplica en Notion y se avisa a todas las ventanas
+  ipcMain.handle('notion:updateSchema', async (_e, id: string, change: SchemaChange) => {
+    const res = await updateSchema(id, change)
+    if (res.ok) {
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send('data:changed')
+      }
+    }
+    return res
+  })
 
   // --- Sync ---
   ipcMain.handle('sync:now', () => syncNow())

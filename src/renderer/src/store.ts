@@ -4,6 +4,7 @@ import type {
   ConnectResult,
   NewTaskInput,
   NotionConnection,
+  SchemaChange,
   SyncState,
   Task,
   TaskPatch,
@@ -36,6 +37,8 @@ interface TasksState {
   connectNotion: (token: string, databaseId: string) => Promise<ConnectResult>
   disconnectNotion: () => Promise<void>
   setProjectEnabled: (databaseId: string, enabled: boolean) => Promise<void>
+  // Cambia columnas/opciones en Notion. Devuelve el mensaje de error, o null si salió bien.
+  updateSchema: (databaseId: string, change: SchemaChange) => Promise<string | null>
   syncNow: () => Promise<void>
   setSyncState: (s: SyncState) => void
 
@@ -139,6 +142,18 @@ export const useTasks = create<TasksState>((set, get) => ({
     const notion = await window.api.notion.setEnabled(databaseId, enabled)
     set({ notion })
     await get().loadProjects()
+  },
+
+  updateSchema: async (databaseId, change) => {
+    try {
+      const res = await window.api.notion.updateSchema(databaseId, change)
+      if (!res.ok) return res.error ?? 'No se pudo aplicar el cambio.'
+      if (res.connection) set({ notion: res.connection })
+      await get().load()
+      return null
+    } catch (e) {
+      return (e as Error)?.message ?? 'No se pudo aplicar el cambio.'
+    }
   },
 
   syncNow: async () => {

@@ -26,7 +26,58 @@ export interface PropSchema {
   type: string // tipo de Notion: rich_text, select, status, date, people, formula…
   options?: string[] // select / status / multi_select
   colors?: Record<string, string> // color de Notion de cada opción (blue, green, red…)
+  groups?: Record<string, string> // status: grupo de cada opción (To-do, In progress, Complete)
+  groupNames?: string[] // status: grupos existentes, en orden
   editable: boolean
+}
+
+// ---- Edición del esquema de una database (columnas y opciones) ----
+
+// Tipos de columna que se pueden crear desde la app
+export const NEW_PROP_TYPES = [
+  { type: 'select', label: 'Selección' },
+  { type: 'multi_select', label: 'Selección múltiple' },
+  { type: 'rich_text', label: 'Texto' },
+  { type: 'number', label: 'Número' },
+  { type: 'date', label: 'Fecha' },
+  { type: 'checkbox', label: 'Casilla' },
+  { type: 'url', label: 'URL' },
+  { type: 'email', label: 'Correo' },
+  { type: 'phone_number', label: 'Teléfono' }
+] as const
+export type NewPropType = (typeof NEW_PROP_TYPES)[number]['type']
+
+// Colores de opción que acepta Notion
+export const NOTION_COLORS = [
+  'default',
+  'gray',
+  'brown',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+  'red'
+] as const
+
+export type SchemaChange =
+  | { kind: 'addOption'; prop: string; name: string; color?: string; group?: string }
+  | { kind: 'updateOption'; prop: string; option: string; name?: string; color?: string }
+  | { kind: 'deleteOption'; prop: string; option: string }
+  | {
+      kind: 'addProperty'
+      name: string
+      type: NewPropType
+      options?: { name: string; color?: string }[]
+    }
+  | { kind: 'renameProperty'; prop: string; name: string }
+  | { kind: 'deleteProperty'; prop: string }
+
+export interface SchemaResult {
+  ok: boolean
+  error?: string
+  connection?: NotionConnection
 }
 
 export interface Task {
@@ -130,6 +181,8 @@ export interface NotionApi {
   disconnect: () => Promise<void>
   // Elegir qué proyectos (databases) traer a la app
   setEnabled: (databaseId: string, enabled: boolean) => Promise<NotionConnection>
+  // Crear/renombrar/eliminar columnas y opciones de una database (se aplica en Notion)
+  updateSchema: (databaseId: string, change: SchemaChange) => Promise<SchemaResult>
 }
 
 export interface SyncApi {

@@ -81,6 +81,20 @@ function schemaOf(entries: SchemaEntry[]): PropSchema[] {
       e.type === 'select' || e.type === 'status' || e.type === 'multi_select'
         ? (e.def[e.type]?.options ?? [])
         : undefined
+    // Status: a qué grupo (Por hacer / En curso / Completo) pertenece cada opción
+    let groups: Record<string, string> | undefined
+    let groupNames: string[] | undefined
+    if (e.type === 'status') {
+      const gs: any[] = e.def.status?.groups ?? []
+      groupNames = gs.map((g) => g.name as string)
+      groups = {}
+      for (const g of gs) {
+        for (const id of (g.option_ids ?? []) as string[]) {
+          const o = options?.find((x) => x.id === id)
+          if (o) groups[o.name] = g.name
+        }
+      }
+    }
     return {
       name: e.name,
       type: e.type,
@@ -88,6 +102,8 @@ function schemaOf(entries: SchemaEntry[]): PropSchema[] {
       colors: options
         ? Object.fromEntries(options.map((o) => [o.name as string, (o.color as string) ?? 'default']))
         : undefined,
+      groups,
+      groupNames,
       editable: (EDITABLE_PROP_TYPES as readonly string[]).includes(e.type)
     }
   })
@@ -491,6 +507,41 @@ export async function updatePage(
 ): Promise<{ updatedAt: string }> {
   const data = await call(token, `/pages/${pageId}`, 'PATCH', { properties })
   return { updatedAt: data.last_edited_time }
+}
+
+// Database "cruda" (con ids de opciones), para editar su esquema.
+export async function getDatabaseRaw(token: string, databaseId: string): Promise<any> {
+  return call(token, `/databases/${databaseId}`, 'GET')
+}
+
+// Cambia columnas/opciones de la database. Devuelve la database actualizada ya mapeada.
+export async function patchDatabaseProperties(
+  token: string,
+  databaseId: string,
+  properties: Record<string, any>
+): Promise<{ raw: any; db: NotionDatabase }> {
+  const raw = await call(token, `/databases/${databaseId}`, 'PATCH', { properties })
+  return { raw, db: { id: normalizeId(raw.id ?? databaseId), ...mapDatabase(raw) } }
+}
+
+// Páginas de la database que cumplen un filtro de Notion.
+export async function queryPages(
+  token: string,
+  databaseId: string,
+  filter: Record<string, any>
+): Promise<NotionPage[]> {
+  const pages: NotionPage[] = []
+  let cursor: string | undefined
+  do {
+    const data = await call(token, `/databases/${databaseId}/query`, 'POST', {
+      filter,
+      page_size: 100,
+      start_cursor: cursor
+    })
+    pages.push(...(data.results as NotionPage[]).filter((r) => !r.archived))
+    cursor = data.has_more ? data.next_cursor : undefined
+  } while (cursor)
+  return pages
 }
 
 export async function archivePage(token: string, pageId: string): Promise<void> {

@@ -5,6 +5,8 @@ import type {
   NewTaskInput,
   NotionConnection,
   ParseVoiceResult,
+  SchemaChange,
+  SchemaResult,
   SyncState,
   ManagerPrefs,
   Task,
@@ -30,7 +32,9 @@ const api: WindowApi = {
       ipcRenderer.invoke('notion:connect', token, databaseId) as Promise<ConnectResult>,
     disconnect: () => ipcRenderer.invoke('notion:disconnect') as Promise<void>,
     setEnabled: (databaseId: string, enabled: boolean) =>
-      ipcRenderer.invoke('notion:setEnabled', databaseId, enabled) as Promise<NotionConnection>
+      ipcRenderer.invoke('notion:setEnabled', databaseId, enabled) as Promise<NotionConnection>,
+    updateSchema: (databaseId: string, change: SchemaChange) =>
+      ipcRenderer.invoke('notion:updateSchema', databaseId, change) as Promise<SchemaResult>
   },
   sync: {
     now: () => ipcRenderer.invoke('sync:now') as Promise<SyncState>,

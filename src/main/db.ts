@@ -258,6 +258,35 @@ export function markSynced(
   ).run(notionId, remoteUpdatedAt, notionDb, id)
 }
 
+// Reescribe las propiedades (y la lista de cambios pendientes) de las tareas que cumplan
+// `match`, sin marcarlas como modificadas: se usa tras cambiar el esquema en Notion
+// (renombrar/eliminar columnas u opciones), donde Notion ya tiene el valor correcto.
+export function rewriteLocalProps(
+  match: (t: Task) => boolean,
+  fn: (props: Record<string, PropValue>, dirty: string[]) => { props: Record<string, PropValue>; dirty: string[] }
+): number {
+  const rows = db.prepare('SELECT * FROM tasks').all() as TaskRow[]
+  const upd = db.prepare('UPDATE tasks SET props = ?, dirty = ? WHERE id = ?')
+  let n = 0
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const t = rowToTask(r)
+      if (!match(t)) continue
+      const before = JSON.stringify(t.props)
+      const beforeDirty = r.dirty ?? '[]'
+      const out = fn({ ...t.props }, parseJson<string[]>(r.dirty, []))
+      const after = JSON.stringify(out.props)
+      const afterDirty = JSON.stringify(out.dirty)
+      if (after !== before || afterDirty !== beforeDirty) {
+        upd.run(after, afterDirty, t.id)
+        n++
+      }
+    }
+  })
+  tx()
+  return n
+}
+
 // Inserta o actualiza una tarea proveniente de Notion (queda como synced=1).
 export function upsertFromNotion(data: {
   notionId: string

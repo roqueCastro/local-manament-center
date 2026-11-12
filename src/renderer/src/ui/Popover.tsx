@@ -18,13 +18,21 @@ export function Popover({
 
   useLayoutEffect(() => {
     if (!anchor) return
-    const r = anchor.getBoundingClientRect()
-    const h = ref.current?.offsetHeight ?? 300
-    const up = r.bottom + h + 8 > window.innerHeight && r.top > h + 8
-    setPos({
-      left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
-      top: up ? r.top - h - 4 : r.bottom + 4
-    })
+    // Se recoloca si cambia el contenido (ej. al abrir el editor de una opción)
+    const place = (): void => {
+      const r = anchor.getBoundingClientRect()
+      const h = ref.current?.offsetHeight ?? 300
+      const up = r.bottom + h + 8 > window.innerHeight && r.top > h + 8
+      const top = up ? r.top - h - 4 : r.bottom + 4
+      setPos({
+        left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+        top: Math.max(8, Math.min(top, window.innerHeight - h - 8))
+      })
+    }
+    place()
+    const ro = new ResizeObserver(place)
+    if (ref.current) ro.observe(ref.current)
+    return () => ro.disconnect()
   }, [anchor, width])
 
   useEffect(() => {
@@ -34,7 +42,11 @@ export function Popover({
       if (!inside(e.target)) onClose()
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      // Esc cierra solo este menú (no llega al gestor, que se cerraría entero)
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
     }
     const onScroll = (e: Event): void => {
       if (!inside(e.target)) onClose()

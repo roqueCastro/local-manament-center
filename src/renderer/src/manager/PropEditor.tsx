@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { PropSchema, PropValue } from '../../../shared/types'
-import { ChipSelect, type ChipOption } from '../ui/ChipSelect'
-import { chipClass } from '../ui/colors'
+import type { NotionDatabaseSummary, PropSchema, PropValue } from '../../../shared/types'
+import type { ChipOption } from '../ui/ChipSelect'
+import { OptionField } from './OptionField'
 
 // Opciones de un select/status de Notion con su color, para ChipSelect.
 export function chipOptions(schema: PropSchema | undefined): ChipOption[] {
@@ -33,10 +33,11 @@ interface Props {
   schema: PropSchema
   value: PropValue | undefined
   onChange: (value: PropValue) => void
+  db?: NotionDatabaseSummary // para crear/editar opciones de la columna
 }
 
 // Editor de una propiedad de Notion según su tipo.
-export function PropEditor({ schema, value, onChange }: Props): JSX.Element {
+export function PropEditor({ schema, value, onChange, db }: Props): JSX.Element {
   if (!schema.editable) {
     const text = formatValue(value, schema.type)
     return (
@@ -49,24 +50,8 @@ export function PropEditor({ schema, value, onChange }: Props): JSX.Element {
   switch (schema.type) {
     case 'select':
     case 'status':
-      return (
-        <ChipSelect
-          value={typeof value === 'string' && value ? value : null}
-          options={chipOptions(schema)}
-          allowEmpty={schema.type === 'select'}
-          placeholder="Elegir…"
-          onChange={(v) => onChange(v)}
-        />
-      )
     case 'multi_select':
-      return (
-        <MultiSelect
-          options={schema.options ?? []}
-          colors={schema.colors}
-          value={value}
-          onChange={onChange}
-        />
-      )
+      return <OptionField db={db} schema={schema} value={value} onChange={onChange} placeholder="Elegir…" />
     case 'date': {
       const current = typeof value === 'string' ? value.slice(0, 10) : ''
       return (
@@ -177,60 +162,5 @@ function TextField({
       }}
       className={inputCls}
     />
-  )
-}
-
-function MultiSelect({
-  options,
-  colors,
-  value,
-  onChange
-}: {
-  options: string[]
-  colors?: Record<string, string>
-  value: PropValue | undefined
-  onChange: (v: PropValue) => void
-}): JSX.Element {
-  const selected = Array.isArray(value) ? value : []
-  const [adding, setAdding] = useState('')
-  const all = [...options, ...selected.filter((s) => !options.includes(s))]
-
-  const toggle = (o: string): void =>
-    onChange(selected.includes(o) ? selected.filter((s) => s !== o) : [...selected, o])
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {all.map((o) => (
-        <button
-          key={o}
-          onClick={() => toggle(o)}
-          className={`inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs font-medium transition-all ${
-            selected.includes(o)
-              ? chipClass(colors?.[o] ?? 'blue')
-              : 'border border-line-strong text-ink-2 hover:bg-ink/5'
-          }`}
-        >
-          {selected.includes(o) && (
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-              <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-          {o}
-        </button>
-      ))}
-      <input
-        value={adding}
-        onChange={(e) => setAdding(e.target.value)}
-        onKeyDown={(e) => {
-          const v = adding.trim()
-          if (e.key === 'Enter' && v) {
-            if (!selected.includes(v)) onChange([...selected, v])
-            setAdding('')
-          }
-        }}
-        placeholder="+ nueva"
-        className="h-7 w-24 rounded-full bg-surface-2 px-3 text-xs outline-none focus:ring-2 focus:ring-primary"
-      />
-    </div>
   )
 }
