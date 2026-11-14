@@ -16,11 +16,14 @@ import { Popover } from '../ui/Popover'
 import { OPTION_PROP_TYPES, OptionField } from './OptionField'
 import { ColumnMenu, NewPropertyForm } from './ColumnMenus'
 import { formatReminder, fromLocalInput, reminderTime, toLocalInput } from '../../../shared/dates'
+import { ColumnsPanel } from './ColumnsPanel'
 import {
   EMPTY_VIEW,
   applyView,
+  arrangeColumns,
   buildColumns,
   cycleSort,
+  moveColumn,
   isActive,
   normalizeView,
   type TableView
@@ -245,6 +248,59 @@ export default function ManagerApp(): JSX.Element {
   )
   const filtersOn = tableView.filters.some(isActive)
 
+  // ---- Posición y visibilidad de las columnas (se guardan por proyecto en la vista) ----
+  const defaultKeys = useMemo(
+    () => [
+      'title',
+      ...(activeProject ? [] : ['project']),
+      'status',
+      'priority',
+      'due',
+      ...extraColumns.map((c) => `prop:${c.name}`)
+    ],
+    [activeProject, extraColumns]
+  )
+  const orderedKeys = arrangeColumns(defaultKeys, tableView.order)
+  // El título siempre se ve (tiene el botón para abrir el detalle)
+  const hiddenKeys = (tableView.hidden ?? []).filter((k) => k !== 'title' && defaultKeys.includes(k))
+  const shownKeys = orderedKeys.filter((k) => !hiddenKeys.includes(k))
+  const labelOf = (key: string): string =>
+    key === 'title'
+      ? 'Tarea'
+      : key === 'project'
+        ? 'Proyecto'
+        : key === 'status'
+          ? statusLabel
+          : key === 'priority'
+            ? priorityLabel
+            : key === 'due'
+              ? dueLabel
+              : key.slice(5)
+  const widthOf = (key: string): string =>
+    key === 'title'
+      ? compact
+        ? 'min-w-[320px]'
+        : 'min-w-[440px]'
+      : key === 'project'
+        ? 'min-w-[170px]'
+        : key === 'status'
+          ? 'min-w-[150px]'
+          : key === 'priority'
+            ? 'min-w-[140px]'
+            : 'min-w-[160px]'
+  const setColumnLayout = (order: string[], hidden: string[]): void =>
+    updateView({ ...tableView, order, hidden })
+  const columnsCustomized = !!(tableView.order?.length || tableView.hidden?.length)
+  const [colsAnchor, setColsAnchor] = useState<HTMLElement | null>(null)
+  // Arrastrar un encabezado sobre otro para moverlo
+  const [dragCol, setDragCol] = useState<string | null>(null)
+  const [overCol, setOverCol] = useState<string | null>(null)
+  const dropColumn = (target: string): void => {
+    if (dragCol && dragCol !== target) setColumnLayout(moveColumn(orderedKeys, dragCol, target), hiddenKeys)
+    setDragCol(null)
+    setOverCol(null)
+  }
+
   // Click en un encabezado: agrega la columna como siguiente nivel de orden
   // (ascendente → descendente → se quita). Así se arma un orden de varias columnas.
   const sortBy = (col: string): void => updateView({ ...tableView, sorts: cycleSort(tableView.sorts, col) })
@@ -254,6 +310,8 @@ export default function ManagerApp(): JSX.Element {
   }
   const sortTh = (col: string, label: string, className: string): JSX.Element => {
     const sc = colSchema(col)
+    const over = overCol === col && dragCol !== null && dragCol !== col
+    const fromLeft = dragCol !== null && orderedKeys.indexOf(dragCol) < orderedKeys.indexOf(col)
     return (
       <Th
         key={col}
@@ -261,6 +319,17 @@ export default function ManagerApp(): JSX.Element {
         sort={sortState(col)}
         onClick={() => sortBy(col)}
         onMenu={sc ? (anchor) => setColMenu({ prop: sc.name, anchor }) : undefined}
+        drag={{
+          dragging: dragCol === col,
+          dropSide: over ? (fromLeft ? 'right' : 'left') : null,
+          onStart: () => setDragCol(col),
+          onOver: () => dragCol && setOverCol(col),
+          onDrop: () => dropColumn(col),
+          onEnd: () => {
+            setDragCol(null)
+            setOverCol(null)
+          }
+        }}
       >
         {label}
       </Th>
@@ -406,6 +475,21 @@ export default function ManagerApp(): JSX.Element {
               {filtersOn && ` de ${baseVisible.length}`}
             </span>
             <button
+              onClick={(e) => setColsAnchor(e.currentTarget)}
+              title="Ordenar, mostrar u ocultar las columnas de la tabla"
+              className={`btn btn-sm btn-text ${columnsCustomized ? 'text-primary' : ''}`}
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <path d="M3 5v14h18V5H3zm5 12H5V7h3v10zm5 0h-3V7h3v10zm6 0h-4V7h4v10z" />
+              </svg>
+              Columnas
+              {hiddenKeys.length > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-on-primary">
+                  {hiddenKeys.length}
+                </span>
+              )}
+            </button>
+            <button
               onClick={toggleCompact}
               title={compact ? 'Mostrar el texto completo de cada tarea' : 'Recortar los textos largos a 2 líneas'}
               className="btn btn-sm btn-text"
@@ -463,12 +547,7 @@ export default function ManagerApp(): JSX.Element {
                 <thead className="sticky top-0 z-10 bg-surface text-left text-xs font-medium text-ink-2">
                   <tr>
                     <Th className="w-12" />
-                    {sortTh('title', 'Tarea', compact ? 'min-w-[320px]' : 'min-w-[440px]')}
-                    {!activeProject && sortTh('project', 'Proyecto', 'min-w-[170px]')}
-                    {sortTh('status', statusLabel, 'min-w-[150px]')}
-                    {sortTh('priority', priorityLabel, 'min-w-[140px]')}
-                    {sortTh('due', dueLabel, 'min-w-[160px]')}
-                    {extraColumns.map((c) => sortTh(`prop:${c.name}`, c.name, 'min-w-[160px]'))}
+                    {shownKeys.map((k) => sortTh(k, labelOf(k), widthOf(k)))}
                     {activeDb && (
                       <th className="w-12 border-b border-line px-1.5 py-2">
                         <button
@@ -491,7 +570,7 @@ export default function ManagerApp(): JSX.Element {
                       key={t.id}
                       task={t}
                       db={dbOf(t)}
-                      showProject={!activeProject}
+                      cols={shownKeys}
                       extraColumns={extraColumns}
                       trailing={!!activeDb}
                       compact={compact}
@@ -525,6 +604,18 @@ export default function ManagerApp(): JSX.Element {
         </Popover>
       )}
 
+      {colsAnchor && (
+        <Popover anchor={colsAnchor} onClose={() => setColsAnchor(null)} width={340}>
+          <ColumnsPanel
+            items={orderedKeys.map((k) => ({ key: k, label: labelOf(k), lockedVisible: k === 'title' }))}
+            hidden={hiddenKeys}
+            customized={columnsCustomized}
+            onChange={setColumnLayout}
+            onReset={() => updateView({ ...tableView, order: undefined, hidden: undefined })}
+          />
+        </Popover>
+      )}
+
       {/* Revisión de tareas dictadas por voz */}
       <VoiceReview variant="dialog" />
     </div>
@@ -534,7 +625,7 @@ export default function ManagerApp(): JSX.Element {
 function TaskRow({
   task: t,
   db,
-  showProject,
+  cols,
   extraColumns,
   trailing,
   compact,
@@ -545,7 +636,7 @@ function TaskRow({
 }: {
   task: Task
   db: NotionDatabaseSummary | undefined
-  showProject: boolean
+  cols: string[] // columnas visibles, en el orden elegido
   extraColumns: PropSchema[]
   trailing: boolean // celda vacía bajo la columna "+"
   compact: boolean // textos recortados a 2 líneas (si no, se ven completos)
@@ -588,117 +679,124 @@ function TaskRow({
           )}
         </button>
       </td>
-      <td className={cell}>
-        <div className={`flex gap-2 ${compact ? 'items-center' : 'items-start'}`}>
-          <span
-            className={`min-w-0 flex-1 cursor-text select-text ${textCls} ${compact ? '' : 'max-w-[560px] pt-1'} ${
-              done ? 'text-ink-2/70 line-through' : ''
-            }`}
-          >
-            {t.title}
-          </span>
-          <button
-            onClick={onSelect}
-            title={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
-            aria-label={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
-              selected
-                ? 'bg-primary text-on-primary'
-                : 'text-ink-2 opacity-50 hover:bg-ink/10 hover:opacity-100 group-hover/row:opacity-100'
-            }`}
-          >
-            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="currentColor">
-              <path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-4 16H5V5h10v14z" />
-            </svg>
-          </button>
-        </div>
-      </td>
-      {showProject && (
-        <td className={cell}>
-          <span className="inline-flex h-6 max-w-[200px] select-text items-center truncate rounded-full bg-[#e9ddff] px-2.5 text-xs font-medium text-[#5a2ca0] dark:bg-[#4a2580] dark:text-[#e9ddff]">
-            {t.project ?? '—'}
-          </span>
-        </td>
-      )}
-      <td className={cell} onClick={stop}>
-        {statusSchema && (statusSchema.type === 'status' || statusSchema.type === 'select') ? (
-          <OptionField
-            db={db}
-            schema={statusSchema}
-            value={statusValue}
-            onChange={(v) => v && onEdit({ props: { [statusSchema.name]: v } })}
-          />
-        ) : (
-          <ChipSelect
-            value={t.status}
-            options={[
-              { value: 'pending', label: 'Pendiente', color: 'blue' },
-              { value: 'done', label: 'Hecha', color: 'green' }
-            ]}
-            onChange={(v) => v && onEdit({ status: v as Task['status'] })}
-          />
-        )}
-      </td>
-      <td className={cell} onClick={stop}>
-        {prioritySchema?.type === 'select' ? (
-          <OptionField
-            db={db}
-            schema={prioritySchema}
-            value={priorityValue}
-            onChange={(v) => onEdit({ props: { [prioritySchema.name]: v } })}
-          />
-        ) : (
-          <ChipSelect
-            value={String(t.priority)}
-            options={priorityOptions}
-            onChange={(v) => onEdit({ priority: Number(v ?? 0) })}
-          />
-        )}
-      </td>
-      <td className={cell} onClick={stop}>
-        <input
-          type="date"
-          value={t.dueDate?.slice(0, 10) ?? ''}
-          onChange={(e) => onEdit({ dueDate: e.target.value || null })}
-          className={`h-7 rounded-full px-3 text-xs outline-none transition-colors focus:ring-2 focus:ring-primary ${
-            t.dueDate ? 'bg-surface-2 text-ink' : 'bg-transparent text-ink-2/60 hover:bg-surface-2'
-          }`}
-        />
-      </td>
-      {extraColumns.map((c, i) => {
-        // Selecciones editables directamente en la tabla (con su propia database)
-        const sc = db?.schema.find((p) => p.name === c.name)
-        const isReminder = !!sc && sc.type === 'date' && db?.mapping.reminderProp === c.name
-        const editable = !!sc && sc.editable && (OPTION_PROP_TYPES.includes(sc.type) || isReminder)
-        const last = !trailing && i === extraColumns.length - 1
-        return (
-          <td
-            key={c.name}
-            className={`${cell} ${last ? 'rounded-r-2xl' : ''}`}
-            onClick={editable ? stop : undefined}
-          >
-            {isReminder ? (
-              <ReminderCell
-                value={t.props[c.name]}
-                done={done}
-                onChange={(v) => onEdit({ props: { [c.name]: v } })}
-              />
-            ) : editable ? (
-              <OptionField
-                db={db}
-                schema={sc}
-                value={t.props[c.name]}
-                onChange={(v) => onEdit({ props: { [c.name]: v } })}
-              />
-            ) : (
-              <ExtraCell schema={c} value={t.props[c.name]} compact={compact} />
-            )}
-          </td>
-        )
-      })}
+      {cols.map((key, i) => renderCell(key, !trailing && i === cols.length - 1))}
       {trailing && <td className={`${cell} rounded-r-2xl`} />}
     </tr>
   )
+
+  // Celda de cada columna (en el orden que eligió el usuario)
+  function renderCell(key: string, last: boolean): JSX.Element | null {
+    const cls = `${cell} ${last ? 'rounded-r-2xl' : ''}`
+    switch (key) {
+      case 'title':
+        return (
+          <td key={key} className={cls}>
+            <div className={`flex gap-2 ${compact ? 'items-center' : 'items-start'}`}>
+              <span
+                className={`min-w-0 flex-1 cursor-text select-text ${textCls} ${compact ? '' : 'max-w-[560px] pt-1'} ${
+                  done ? 'text-ink-2/70 line-through' : ''
+                }`}
+              >
+                {t.title}
+              </span>
+              <button
+                onClick={onSelect}
+                title={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
+                aria-label={selected ? 'Cerrar el detalle' : 'Abrir el detalle de la tarea'}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+                  selected
+                    ? 'bg-primary text-on-primary'
+                    : 'text-ink-2 opacity-50 hover:bg-ink/10 hover:opacity-100 group-hover/row:opacity-100'
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="currentColor">
+                  <path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-4 16H5V5h10v14z" />
+                </svg>
+              </button>
+            </div>
+          </td>
+        )
+      case 'project':
+        return (
+          <td key={key} className={cls}>
+            <span className="inline-flex h-6 max-w-[200px] select-text items-center truncate rounded-full bg-[#e9ddff] px-2.5 text-xs font-medium text-[#5a2ca0] dark:bg-[#4a2580] dark:text-[#e9ddff]">
+              {t.project ?? '—'}
+            </span>
+          </td>
+        )
+      case 'status':
+        return (
+          <td key={key} className={cls} onClick={stop}>
+            {statusSchema && (statusSchema.type === 'status' || statusSchema.type === 'select') ? (
+              <OptionField
+                db={db}
+                schema={statusSchema}
+                value={statusValue}
+                onChange={(v) => v && onEdit({ props: { [statusSchema.name]: v } })}
+              />
+            ) : (
+              <ChipSelect
+                value={t.status}
+                options={[
+                  { value: 'pending', label: 'Pendiente', color: 'blue' },
+                  { value: 'done', label: 'Hecha', color: 'green' }
+                ]}
+                onChange={(v) => v && onEdit({ status: v as Task['status'] })}
+              />
+            )}
+          </td>
+        )
+      case 'priority':
+        return (
+          <td key={key} className={cls} onClick={stop}>
+            {prioritySchema?.type === 'select' ? (
+              <OptionField
+                db={db}
+                schema={prioritySchema}
+                value={priorityValue}
+                onChange={(v) => onEdit({ props: { [prioritySchema.name]: v } })}
+              />
+            ) : (
+              <ChipSelect
+                value={String(t.priority)}
+                options={priorityOptions}
+                onChange={(v) => onEdit({ priority: Number(v ?? 0) })}
+              />
+            )}
+          </td>
+        )
+      case 'due':
+        return (
+          <td key={key} className={cls} onClick={stop}>
+            <input
+              type="date"
+              value={t.dueDate?.slice(0, 10) ?? ''}
+              onChange={(e) => onEdit({ dueDate: e.target.value || null })}
+              className={`h-7 rounded-full px-3 text-xs outline-none transition-colors focus:ring-2 focus:ring-primary ${
+                t.dueDate ? 'bg-surface-2 text-ink' : 'bg-transparent text-ink-2/60 hover:bg-surface-2'
+              }`}
+            />
+          </td>
+        )
+    }
+    const c = key.startsWith('prop:') ? extraColumns.find((x) => x.name === key.slice(5)) : undefined
+    if (!c) return null
+    // Selecciones editables directamente en la tabla (con su propia database)
+    const sc = db?.schema.find((p) => p.name === c.name)
+    const isReminder = !!sc && sc.type === 'date' && db?.mapping.reminderProp === c.name
+    const editable = !!sc && sc.editable && (OPTION_PROP_TYPES.includes(sc.type) || isReminder)
+    return (
+      <td key={key} className={cls} onClick={editable ? stop : undefined}>
+        {isReminder ? (
+          <ReminderCell value={t.props[c.name]} done={done} onChange={(v) => onEdit({ props: { [c.name]: v } })} />
+        ) : editable ? (
+          <OptionField db={db} schema={sc} value={t.props[c.name]} onChange={(v) => onEdit({ props: { [c.name]: v } })} />
+        ) : (
+          <ExtraCell schema={c} value={t.props[c.name]} compact={compact} />
+        )}
+      </td>
+    )
+  }
 }
 
 // Recordatorio: fecha y hora exactas del aviso, editable en la tabla
@@ -895,16 +993,64 @@ function Th({
   className = '',
   sort = null,
   onClick,
-  onMenu
+  onMenu,
+  drag
 }: {
   children?: React.ReactNode
   className?: string
   sort?: { dir: 'asc' | 'desc'; level: number } | null // level > 0 = posición en un orden múltiple
   onClick?: () => void
   onMenu?: (anchor: HTMLElement) => void // renombrar / opciones / eliminar la columna
+  // Arrastrar el encabezado sobre otro para mover la columna
+  drag?: {
+    dragging: boolean
+    dropSide: 'left' | 'right' | null // dónde quedará la columna arrastrada
+    onStart: () => void
+    onOver: () => void
+    onDrop: () => void
+    onEnd: () => void
+  }
 }): JSX.Element {
+  const dropCls =
+    drag?.dropSide === 'left'
+      ? 'shadow-[inset_2px_0_0_rgb(var(--md-primary))]'
+      : drag?.dropSide === 'right'
+        ? 'shadow-[inset_-2px_0_0_rgb(var(--md-primary))]'
+        : ''
   return (
-    <th className={`group/th whitespace-nowrap border-b border-line px-1.5 py-2 font-medium ${className}`}>
+    <th
+      draggable={!!drag}
+      onDragStart={
+        drag
+          ? (e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', '')
+              drag.onStart()
+            }
+          : undefined
+      }
+      onDragOver={
+        drag
+          ? (e) => {
+              e.preventDefault()
+              drag.onOver()
+            }
+          : undefined
+      }
+      onDrop={
+        drag
+          ? (e) => {
+              e.preventDefault()
+              drag.onDrop()
+            }
+          : undefined
+      }
+      onDragEnd={drag?.onEnd}
+      title={drag ? 'Arrastra para mover la columna' : undefined}
+      className={`group/th whitespace-nowrap border-b border-line px-1.5 py-2 font-medium ${
+        drag ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${drag?.dragging ? 'opacity-40' : ''} ${dropCls} ${className}`}
+    >
       <span className="inline-flex items-center">
         {onClick ? (
           <button

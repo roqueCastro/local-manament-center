@@ -119,7 +119,7 @@ export function FilterBar({
       )}
 
       {hasAnything && (
-        <button onClick={() => onChange({ filters: [], sorts: [] })} className="btn btn-sm btn-text">
+        <button onClick={() => onChange({ ...view, filters: [], sorts: [] })} className="btn btn-sm btn-text">
           Limpiar
         </button>
       )}

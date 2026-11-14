@@ -46,18 +46,58 @@ export interface TableView {
   filters: ColFilter[]
   // Orden por varias columnas: la primera manda; las siguientes desempatan
   sorts: SortRule[]
+  // Posición de las columnas elegida por el usuario (claves). Las que no aparecen
+  // (ej. una columna nueva en Notion) quedan en su lugar por defecto.
+  order?: string[]
+  hidden?: string[] // columnas ocultas en la tabla
 }
 
 export const EMPTY_VIEW: TableView = { filters: [], sorts: [] }
 
+const strings = (x: unknown): string[] | undefined =>
+  Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : undefined
+
 // Vista guardada → formato actual (las vistas antiguas tenían un único `sort`)
 export function normalizeView(raw: unknown): TableView {
-  const v = (raw ?? {}) as { filters?: ColFilter[]; sorts?: SortRule[]; sort?: SortRule | null }
+  const v = (raw ?? {}) as {
+    filters?: ColFilter[]
+    sorts?: SortRule[]
+    sort?: SortRule | null
+    order?: unknown
+    hidden?: unknown
+  }
   const sorts = Array.isArray(v.sorts) ? v.sorts : v.sort ? [v.sort] : []
   return {
     filters: Array.isArray(v.filters) ? v.filters : [],
-    sorts: sorts.filter((r) => r && typeof r.col === 'string' && (r.dir === 'asc' || r.dir === 'desc'))
+    sorts: sorts.filter((r) => r && typeof r.col === 'string' && (r.dir === 'asc' || r.dir === 'desc')),
+    order: strings(v.order),
+    hidden: strings(v.hidden)
   }
+}
+
+// ---- Posición de las columnas ----
+
+// Claves de las columnas en el orden del usuario. `defaults` = orden por defecto.
+export function arrangeColumns(defaults: string[], order: string[] | undefined): string[] {
+  if (!order?.length) return defaults
+  const out = order.filter((k) => defaults.includes(k))
+  // Las que no tienen posición guardada: en su lugar por defecto (o al final)
+  defaults.forEach((k, i) => {
+    if (!out.includes(k)) out.splice(Math.min(i, out.length), 0, k)
+  })
+  return out
+}
+
+// Mueve `key` al lugar de `target`: queda después si venía de la izquierda, antes si
+// venía de la derecha (como al arrastrar un encabezado).
+export function moveColumn(cols: string[], key: string, target: string): string[] {
+  const from = cols.indexOf(key)
+  const to = cols.indexOf(target)
+  if (from < 0 || to < 0 || from === to) return cols
+  const out = cols.slice()
+  out.splice(from, 1)
+  out.splice(to, 0, key)
+  return out
 }
 
 // Click en un encabezado: si la columna no ordena, se agrega como siguiente nivel
