@@ -3,13 +3,23 @@
   "version": "0.1.0",
   "description": "Centro de control de tareas con icono flotante, Notion e IA por voz",
   "main": "./out/main/index.js",
+  "desktopName": "local-management-center.desktop",
   "author": "roqueCastro",
   "license": "MIT",
+  "homepage": "https://github.com/roqueCastro/local-manament-center",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/roqueCastro/local-manament-center.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -18,7 +28,8 @@
   },
   "dependencies": {
     "@fontsource/roboto": "^5.1.0",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^11.8.1",
+    "electron-updater": "6.8.11"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
@@ -29,7 +40,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^37.10.3",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
@@ -38,5 +49,8 @@
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
     "zustand": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

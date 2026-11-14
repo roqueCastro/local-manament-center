@@ -49,6 +49,8 @@ npm run dev          # desarrollo
 npm run typecheck    # tipos de main y renderer
 npm run build        # build de producción (out/)
 npm run rebuild      # recompilar better-sqlite3 si falla al cargar
+npm run dist         # instalador para el sistema actual → release/<versión>/ (requiere Node 22)
+npm run dist:linux   # solo el .deb (también dist:win y dist:mac)
 ```
 
 > Cambios en `src/main/` o `src/preload/` necesitan reiniciar `npm run dev` (Ctrl+C y volver a lanzar). Solo el renderer se recarga en caliente.
@@ -88,6 +90,8 @@ La app usa **instancia única**: si se lanza otra vez, la segunda se cierra y la
 |---|---|
 | `tasks.sqlite` | Tareas, borrados pendientes (`tombstones`) y proyectos |
 | `settings.json` | Token de Notion y key de Groq **cifrados**, databases descubiertas con su mapeo y esquema, proyectos desactivados, posición de la burbuja y preferencias del gestor |
+
+La carpeta se fija en `index.ts`: la app instalada usa `<appData>/local-management-center` (en Linux `~/.config/local-management-center`) y **`npm run dev` usa `local-management-center-dev`**, así no comparten la base de datos ni el bloqueo de instancia única y pueden abrirse a la vez. La primera vez que se arranca en desarrollo se copian ahí `settings.json` y `tasks.sqlite` de la carpeta normal.
 
 ---
 
@@ -176,6 +180,34 @@ Detalles importantes:
 - **Iniciar con el sistema** (Ajustes → Recordatorios): en Linux crea `~/.config/autostart/local-management-center.desktop`; en macOS/Windows usa `setLoginItemSettings`. En desarrollo arranca la última compilación (`npm run build`); conviene no activarlo mientras desarrollas con `npm run dev` (la instancia única haría que el `dev` se cierre).
 - La API de Notion no permite crear los recordatorios nativos de Notion; el aviso lo da esta app.
 
+### 4.8 Instaladores y actualizaciones (`electron-builder.yml`, `updater.ts`, `.github/workflows/release.yml`)
+
+**Instaladores** (electron-builder):
+
+| Sistema | Archivo | Se actualiza solo |
+|---|---|---|
+| Linux | `local-management-center_X.Y.Z_amd64.deb` | Sí; al instalar pide la contraseña (pkexec) |
+| Windows | `local-management-center-X.Y.Z-setup.exe` (un clic, sin administrador) | Sí, en silencio |
+| macOS | `local-management-center-X.Y.Z-arm64.dmg` / `-x64.dmg` | **No**: sin firma de Apple solo avisa y abre la página de descarga |
+
+- Las versiones se publican en **GitHub Releases** de este mismo repositorio (debe ser **público** para que la app instalada las vea sin token).
+- macOS va con firma *ad-hoc*: la primera vez se abre con **clic derecho → Abrir**. Si dice que "está dañada", ejecutar `xattr -cr "/Applications/Centro de Control de Tareas.app"`. Para que se actualice sola hace falta una cuenta de Apple Developer (firma + notarización).
+- Windows sin certificado: SmartScreen avisa la primera vez ("Más información → Ejecutar de todas formas").
+
+**Publicar una versión nueva:**
+```bash
+npm version patch            # 0.1.0 → 0.1.1 (o minor / major): cambia package.json, hace commit y crea la etiqueta v0.1.1
+git push && git push --tags  # la etiqueta dispara la GitHub Action
+```
+La Action (pestaña **Actions** en GitHub) crea la versión como **borrador**, arma el `.deb` (Ubuntu), el `.exe` (Windows) y los `.dmg` (macOS), los sube y recién entonces la **publica**. Si un sistema falla, queda en borrador (nadie la recibe) y se puede relanzar. La etiqueta debe coincidir con `version` de `package.json`.
+
+**En la app instalada** (`updater.ts`, con `electron-updater`):
+- Busca versión nueva **15 s después de abrir** y **cada 4 horas**; también con **Ajustes → Actualizaciones → Buscar actualizaciones**.
+- Windows/Linux: la descarga en segundo plano y avisa con una notificación; se instala con **"Reiniciar y actualizar"** (Ajustes, notificación o menú de la bandeja) o sola **al salir** de la app.
+- macOS: notificación + botón **Descargar** (abre la página de la versión).
+- Las tareas, el token y los ajustes se conservan entre versiones (viven en la carpeta de datos, no en la instalación).
+- En `npm run dev` no se busca nada (Ajustes muestra "Modo desarrollo").
+
 ## 5. Modelo de datos (SQLite)
 
 ```sql
@@ -221,6 +253,7 @@ local-manament-center/
 │   │   ├── schema.ts            # crear/renombrar/eliminar columnas y opciones en Notion
 │   │   ├── reminders.ts         # recordatorios: programación, aviso, posponer, perdidos
 │   │   ├── autostart.ts         # iniciar con el sistema
+│   │   ├── updater.ts           # actualizaciones (electron-updater + GitHub Releases)
 │   │   ├── ai.ts                # flujo de voz → tareas
 │   │   ├── groq.ts              # cliente Groq (Whisper + LLM, elección de modelo)
 │   │   └── settings.ts          # settings.json + safeStorage
@@ -241,7 +274,10 @@ local-manament-center/
 │           │                    # OptionField (selecciones con gestión de opciones), ColumnMenus
 │           └── ui/              # ChipSelect/MultiChipSelect, OptionMenu, Switch, Popover, colors
 ├── resources/                   # iconos (icon.png, trayColor.png…)
+├── build/icon.png               # icono de los instaladores
 ├── scripts/gen-icons.mjs        # genera los iconos
+├── .github/workflows/release.yml # arma y publica los instaladores al crear una etiqueta vX.Y.Z
+├── electron-builder.yml         # configuración de los instaladores
 ├── electron.vite.config.ts
 ├── tailwind.config.js
 └── package.json
@@ -277,13 +313,14 @@ local-manament-center/
 - [x] Crear/renombrar/eliminar **columnas** y **opciones** (selección, múltiple y estado) desde la app.
 - [x] **IA llena las columnas** del proyecto a partir del texto o la voz.
 - [x] **Orden por varias columnas** en la tabla del gestor.
+- [x] **Instaladores** (`.deb`, `.exe`, `.dmg`) armados por GitHub Actions y publicados en GitHub Releases.
+- [x] **Actualizaciones automáticas** (`electron-updater`) en Linux y Windows; aviso de versión nueva en macOS.
 
 ### ⏳ Pendiente
 - [ ] Comandos de voz para **editar** tareas ("marca X como hecha", "cambia la fecha de Y").
 - [x] **Recordatorios** con fecha y hora: aviso con sonido, posponer, perdidos e inicio con el sistema.
 - [ ] Preferencias: cambiar el atajo.
-- [ ] Empaquetado con **electron-builder** (`.AppImage`/`.deb`, `.dmg`, `.exe`).
-- [ ] Actualizaciones automáticas (`electron-updater`).
+- [ ] Firma de código en macOS (Apple Developer) para que también se actualice sola, y en Windows para evitar SmartScreen.
 - [ ] Whisper local (`whisper.cpp`) para voz sin conexión.
 
 ---
@@ -297,6 +334,9 @@ local-manament-center/
 | "El modelo … no existe / no tienes acceso" (Groq) | Ya se resuelve solo eligiendo otro modelo disponible; si persiste, revisar la key en Ajustes. |
 | `better-sqlite3` no carga | `npm run rebuild`. |
 | El icono de bandeja no responde al clic en Linux | Es normal con AppIndicator: usar el menú o la burbuja. |
+| `npm run dist` falla con `The "paths[0]" argument must be of type string` | electron-builder 26 requiere **Node 22**: `nvm use 22` (hay `.nvmrc`). |
+| "Aún no hay versiones publicadas" en Ajustes | No hay ninguna versión publicada en GitHub Releases (o el repositorio es privado). |
+| macOS: "la app está dañada" | Falta firma de Apple: `xattr -cr "/Applications/Centro de Control de Tareas.app"`. |
 
 ---
 

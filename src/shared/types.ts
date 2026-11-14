@@ -262,6 +262,34 @@ export interface RemindersApi {
   resize: (height: number) => void // la ventana se ajusta a su contenido
 }
 
+// ---- Actualizaciones de la app ----
+
+export interface UpdateState {
+  current: string // versión instalada
+  status:
+    | 'dev' // en desarrollo (npm run dev) no se buscan actualizaciones
+    | 'idle' // aún no se buscó
+    | 'checking'
+    | 'none' // ya tienes la última versión
+    | 'downloading'
+    | 'ready' // descargada: se instala al reiniciar
+    | 'manual' // macOS sin firma: hay versión nueva, se descarga a mano
+    | 'error'
+  version?: string // versión nueva disponible
+  percent?: number // progreso de la descarga (0-100)
+  message?: string // detalle del error
+  checkedAt?: string // ISO de la última búsqueda
+}
+
+export interface UpdatesApi {
+  get: () => Promise<UpdateState>
+  check: () => Promise<UpdateState> // buscar ahora
+  install: () => void // reiniciar e instalar la versión descargada
+  openDownload: () => void // macOS: abrir la página de descarga
+  onState: (cb: (state: UpdateState) => void) => void
+  offState: () => void
+}
+
 // Preferencias del gestor que se recuerdan entre aperturas y reinicios
 export interface ManagerPrefs {
   project: string // proyecto seleccionado ('' = Todos)
@@ -284,6 +312,7 @@ export interface WindowApi {
     get: () => Promise<boolean>
     set: (on: boolean) => Promise<boolean>
   }
+  updates: UpdatesApi
   // El gestor recibe "abrir esta tarea" (desde un recordatorio)
   onSelectTask: (cb: (taskId: string) => void) => void
   takeSelectTask: () => Promise<string | null>

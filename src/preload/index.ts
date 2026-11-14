@@ -13,6 +13,7 @@ import type {
   ReminderAlert,
   Task,
   TaskPatch,
+  UpdateState,
   WindowApi
 } from '../shared/types'
 
@@ -76,6 +77,18 @@ const api: WindowApi = {
   autostart: {
     get: () => ipcRenderer.invoke('autostart:get') as Promise<boolean>,
     set: (on: boolean) => ipcRenderer.invoke('autostart:set', on) as Promise<boolean>
+  },
+  updates: {
+    get: () => ipcRenderer.invoke('update:get') as Promise<UpdateState>,
+    check: () => ipcRenderer.invoke('update:check') as Promise<UpdateState>,
+    install: () => ipcRenderer.send('update:install'),
+    openDownload: () => ipcRenderer.send('update:openDownload'),
+    onState: (cb: (state: UpdateState) => void) => {
+      ipcRenderer.on('update:state', (_e, state: UpdateState) => cb(state))
+    },
+    offState: () => {
+      ipcRenderer.removeAllListeners('update:state')
+    }
   },
   onSelectTask: (cb: (taskId: string) => void) => {
     ipcRenderer.on('manager:select', (_e, taskId: string) => cb(taskId))

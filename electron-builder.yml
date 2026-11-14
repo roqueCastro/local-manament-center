@@ -1,0 +1,83 @@
+# Empaquetado e instaladores (electron-builder)
+#   npm run dist        → instalador para el sistema actual, en release/<versión>/
+#   Publicar una versión: subir "version" en package.json, crear la etiqueta vX.Y.Z y
+#   hacer push; la GitHub Action (.github/workflows/release.yml) arma Linux, Windows y
+#   macOS y los publica en GitHub Releases, de donde la app instalada se actualiza.
+
+appId: com.roquecastro.localmanagementcenter
+productName: Centro de Control de Tareas
+# Sin espacios ni tildes: nombre del ejecutable (Linux/Windows)
+executableName: local-management-center
+copyright: Copyright © 2026 roqueCastro
+# Nombre de los archivos publicados (sin espacios: así coinciden en GitHub Releases)
+artifactName: ${name}-${version}-${arch}.${ext}
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+# Solo lo compilado por electron-vite + los recursos (iconos). Las dependencias de
+# producción (better-sqlite3, electron-updater) se agregan solas desde node_modules.
+files:
+  - out/**
+  - resources/**
+  - package.json
+  # Código fuente de SQLite: ya va compilado en better_sqlite3.node
+  - '!**/node_modules/better-sqlite3/{deps,src,docs}/**'
+# Los recursos importados con ?asset se leen desde fuera del .asar
+asarUnpack:
+  - resources/**
+
+# ---- Linux: solo .deb ----
+linux:
+  target: deb
+  category: Office
+  icon: build/icon.png
+  synopsis: Tareas de Notion con burbuja flotante, recordatorios e IA por voz
+  maintainer: roqueCastro <roqueCastro@users.noreply.github.com>
+deb:
+  artifactName: ${name}_${version}_${arch}.${ext}
+
+# ---- Windows: instalador .exe (NSIS) ----
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.png
+nsis:
+  # Instalación de un clic para el usuario actual: sin permisos de administrador,
+  # así las actualizaciones se instalan sin pedir nada.
+  oneClick: true
+  perMachine: false
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: Centro de Control de Tareas
+  createDesktopShortcut: always
+
+# ---- macOS: .dmg (Apple Silicon e Intel) ----
+# Sin cuenta de Apple Developer: firma "ad-hoc" (identity "-"). La app abre con
+# clic derecho → Abrir, pero no puede actualizarse sola; el .zip se publica para que
+# la app sepa que hay versión nueva y muestre el botón para descargarla.
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  category: public.app-category.productivity
+  icon: build/icon.png
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Para dictar tareas por voz.
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+  title: Centro de Control de Tareas
+
+# Dónde se publican las versiones y de dónde se actualiza la app instalada.
+# Se crea como borrador: la Action lo publica cuando los tres sistemas terminaron.
+publish:
+  provider: github
+  owner: roqueCastro
+  repo: local-manament-center
+  releaseType: draft

@@ -1,0 +1,71 @@
+# Publica una versión nueva al hacer push de una etiqueta vX.Y.Z:
+#   1. crea la versión en GitHub Releases como borrador,
+#   2. arma los instaladores en Linux (.deb), Windows (.exe) y macOS (.dmg) y los sube,
+#   3. publica la versión: desde ese momento las apps instaladas la ven y se actualizan.
+# Si algún sistema falla, la versión queda como borrador (nadie la recibe) y se puede
+# volver a lanzar desde la pestaña Actions.
+
+name: Publicar versión
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # crear la versión y subir los archivos
+
+jobs:
+  borrador:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: La etiqueta debe coincidir con la versión de package.json
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::La etiqueta $GITHUB_REF_NAME no coincide con la versión $V de package.json"
+            exit 1
+          fi
+      - name: Crear la versión como borrador
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+
+  instaladores:
+    needs: borrador
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: --linux
+          - os: windows-latest
+            target: --win
+          - os: macos-latest
+            target: --mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Armar y subir los instaladores
+        run: npx electron-builder ${{ matrix.target }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Sin certificados de firma (macOS usa firma ad-hoc, ver electron-builder.yml)
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+  publicar:
+    needs: instaladores
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publicar la versión
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

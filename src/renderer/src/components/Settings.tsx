@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTasks } from '../store'
 import { Switch } from '../ui/Switch'
+import { UpdatesSection } from './UpdatesSection'
 
 export function Settings(): JSX.Element {
   const notion = useTasks((s) => s.notion)
@@ -243,6 +244,9 @@ export function Settings(): JSX.Element {
             />
           </div>
         </section>
+
+        {/* --- Actualizaciones --- */}
+        <UpdatesSection />
 
         {/* --- IA por voz (Groq) --- */}
         <section className="card space-y-3 p-4">

@@ -1,4 +1,6 @@
 import { app, globalShortcut, ipcMain, session } from 'electron'
+import { copyFileSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
 import { initDb, listTasks } from './db'
 import { isDatabaseExcluded } from './settings'
 import { initBubble, updateBubbleBadge } from './bubble'
@@ -10,12 +12,32 @@ import {
   hidePanel,
   setPanelPinned,
   showPanel,
-  togglePanel
+  togglePanel,
+  refreshTrayMenu
 } from './window'
 import { hideManager, openManager, openManagerAt, takePendingSelect, toggleManager } from './manager'
 import { initReminders, refreshReminders } from './reminders'
 import { getAutostart, setAutostart } from './autostart'
 import { initSyncState, onDataChanged, onSyncStateChange, startAutoSync, stopAutoSync } from './sync'
+import { checkForUpdates, getUpdateState, initUpdater, installUpdate, openDownloadPage, stopUpdater } from './updater'
+
+// Carpeta de datos fija (tareas, token, ajustes), sin depender del nombre visible de la app.
+// En desarrollo se usa una aparte: así `npm run dev` y la app instalada no comparten la
+// base de datos ni el bloqueo de instancia única (pueden abrirse a la vez).
+const DATA_DIR = 'local-management-center'
+const dataPath = join(app.getPath('appData'), app.isPackaged ? DATA_DIR : `${DATA_DIR}-dev`)
+if (!app.isPackaged && !existsSync(dataPath)) {
+  // Primera vez en desarrollo: arrancar con una copia de los datos que ya tenías
+  const from = join(app.getPath('appData'), DATA_DIR)
+  mkdirSync(dataPath, { recursive: true })
+  for (const f of ['settings.json', 'tasks.sqlite', 'tasks.sqlite-wal', 'tasks.sqlite-shm', 'Local State']) {
+    if (existsSync(join(from, f))) copyFileSync(join(from, f), join(dataPath, f))
+  }
+}
+app.setPath('userData', dataPath)
+
+// Windows: necesario para que las notificaciones muestren el nombre de la app
+if (process.platform === 'win32') app.setAppUserModelId('com.roquecastro.localmanagementcenter')
 
 // Garantizar una sola instancia de la app. app.quit() es asíncrono, así que se sale
 // de inmediato para que la segunda instancia no llegue a inicializar DB, atajo, etc.
@@ -74,6 +96,21 @@ app.whenReady().then(() => {
   ipcMain.handle('autostart:get', () => getAutostart())
   ipcMain.handle('autostart:set', (_e, on: boolean) => setAutostart(on))
 
+  // Actualizaciones: busca al arrancar y cada 4 horas; avisa a Ajustes y a la bandeja
+  let lastUpdateStatus = ''
+  initUpdater({
+    onState: (s) => {
+      broadcast('update:state', s)
+      // El menú solo cambia con el estado (no con cada % de la descarga)
+      if (s.status !== lastUpdateStatus) refreshTrayMenu()
+      lastUpdateStatus = s.status
+    }
+  })
+  ipcMain.handle('update:get', () => getUpdateState())
+  ipcMain.handle('update:check', () => checkForUpdates())
+  ipcMain.on('update:install', () => installUpdate())
+  ipcMain.on('update:openDownload', () => openDownloadPage())
+
   // Permitir que el renderer oculte el panel (ej: tras crear una tarea con Esc)
   ipcMain.on('panel:hide', () => hidePanel())
   ipcMain.on('panel:setPinned', (_e, pinned: boolean) => setPanelPinned(pinned))
@@ -103,4 +140,5 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopAutoSync()
+  stopUpdater()
 })

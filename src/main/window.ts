@@ -4,6 +4,7 @@ import trayTemplatePath from '../../resources/trayTemplate.png?asset'
 import trayColorPath from '../../resources/trayColor.png?asset'
 import { getBubbleBounds, isBubbleEnabled, setBubbleEnabled } from './bubble'
 import { openManager } from './manager'
+import { getUpdateState, installUpdate, openDownloadPage } from './updater'
 
 const PANEL_WIDTH = 420
 const PANEL_HEIGHT = 600
@@ -136,7 +137,14 @@ export function togglePanel(): void {
 
 // Menú compartido: icono de bandeja y click derecho sobre la burbuja.
 export function buildAppMenu(): Menu {
+  const update = getUpdateState()
   return Menu.buildFromTemplate([
+    // Versión nueva lista: reiniciar para instalarla (macOS: descargarla a mano)
+    ...(update.status === 'ready'
+      ? [{ label: `Reiniciar para actualizar a ${update.version}`, click: () => installUpdate() }, { type: 'separator' as const }]
+      : update.status === 'manual'
+        ? [{ label: `Descargar versión ${update.version}`, click: () => openDownloadPage() }, { type: 'separator' as const }]
+        : []),
     { label: 'Abrir panel', click: () => showPanel() },
     {
       label: 'Abrir gestor de tareas',
@@ -159,8 +167,9 @@ export function buildAppMenu(): Menu {
   ])
 }
 
-// En Linux el menú queda fijado al AppIndicator: hay que reconstruirlo para reflejar el checkbox.
-function refreshTrayMenu(): void {
+// En Linux el menú queda fijado al AppIndicator: hay que reconstruirlo para reflejar
+// el checkbox o una actualización lista.
+export function refreshTrayMenu(): void {
   if (tray && process.platform === 'linux') tray.setContextMenu(buildAppMenu())
 }
 
