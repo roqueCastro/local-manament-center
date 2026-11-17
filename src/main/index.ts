@@ -1,4 +1,4 @@
-import { app, globalShortcut, ipcMain, session } from 'electron'
+import { app, dialog, globalShortcut, ipcMain, session } from 'electron'
 import { copyFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { initDb, listTasks } from './db'
@@ -129,7 +129,20 @@ app.whenReady().then(() => {
 
   // Sincronización automática: al arrancar (si hay conexión) y cada 5 minutos
   startAutoSync()
-})
+}).catch(failStartup)
+
+// Si el arranque falla (ej. no carga el módulo nativo de SQLite), avisar y salir. Sin esto
+// el proceso queda vivo sin ventanas y con el bloqueo de instancia única tomado, así que
+// volver a abrir la app tampoco hace nada.
+function failStartup(err: unknown): void {
+  const detail = err instanceof Error ? err.stack || err.message : String(err)
+  console.error('Error al iniciar la app:', detail)
+  dialog.showErrorBox(
+    'No se pudo iniciar Centro de Control de Tareas',
+    `${detail}\n\nSi el problema sigue, instala la última versión desde\nhttps://github.com/roqueCastro/local-manament-center/releases`
+  )
+  app.exit(1)
+}
 
 // App de bandeja: registrar el listener evita el cierre por defecto.
 // La app sigue viva en la bandeja aunque el panel se oculte.

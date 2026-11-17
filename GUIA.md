@@ -336,6 +336,7 @@ local-manament-center/
 | El icono de bandeja no responde al clic en Linux | Es normal con AppIndicator: usar el menú o la burbuja. |
 | `npm run dist` falla con `The "paths[0]" argument must be of type string` | electron-builder 26 requiere **Node 22**: `nvm use 22` (hay `.nvmrc`). |
 | "Aún no hay versiones publicadas" en Ajustes | No hay ninguna versión publicada en GitHub Releases (o el repositorio es privado). |
+| El `.deb` instalado no abre (`GLIBC_2.38 not found` al lanzarlo desde la terminal) | El instalador se armó en un Ubuntu más nuevo que el del equipo: `better-sqlite3` se compila contra la glibc del runner. La Action arma Linux en `ubuntu-22.04` para que sirva desde 22.04 en adelante. Desde la 0.1.1, si el arranque falla, la app muestra el error y se cierra. |
 | macOS: "la app está dañada" | Falta firma de Apple: `xattr -cr "/Applications/Centro de Control de Tareas.app"`. |
 
 ---

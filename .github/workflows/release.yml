@@ -39,7 +39,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # 22.04 y no latest: better-sqlite3 se compila contra la glibc del runner, y un
+          # .deb armado en 24.04 (glibc 2.39) no arranca en Ubuntu 22.04 (glibc 2.35).
+          - os: ubuntu-22.04
             target: --linux
           - os: windows-latest
             target: --win
