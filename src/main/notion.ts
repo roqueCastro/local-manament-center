@@ -497,14 +497,48 @@ export function buildProperties(
 
 // ---- Operaciones ----
 
+// Texto libre (detalles de la tarea) → bloques para el cuerpo de la página.
+// Cada línea es un párrafo; las que empiezan con "-", "*" o "•" son viñetas.
+// Límites de la API: 2000 caracteres por texto y 100 bloques por petición.
+export function textToBlocks(text: string): any[] {
+  const MAX_TEXT = 2000
+  const MAX_BLOCKS = 100
+  const richText = (content: string): any[] => {
+    const out: any[] = []
+    for (let i = 0; i < content.length; i += MAX_TEXT) {
+      out.push({ type: 'text', text: { content: content.slice(i, i + MAX_TEXT) } })
+    }
+    return out
+  }
+  const block = (type: 'paragraph' | 'bulleted_list_item', content: string): any => ({
+    object: 'block',
+    type,
+    [type]: { rich_text: richText(content) }
+  })
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const blocks = lines.map((line) => {
+    const bullet = line.match(/^[-*•]\s+(.*)$/)
+    return bullet ? block('bulleted_list_item', bullet[1]) : block('paragraph', line)
+  })
+  if (blocks.length <= MAX_BLOCKS) return blocks
+  // Demasiadas líneas: el resto va junto en el último párrafo (no se pierde nada)
+  return [...blocks.slice(0, MAX_BLOCKS - 1), block('paragraph', lines.slice(MAX_BLOCKS - 1).join('\n'))]
+}
+
 export async function createPage(
   token: string,
   databaseId: string,
-  properties: Record<string, any>
+  properties: Record<string, any>,
+  children: any[] = []
 ): Promise<{ id: string; updatedAt: string }> {
   const data = await call(token, '/pages', 'POST', {
     parent: { database_id: databaseId },
-    properties
+    properties,
+    ...(children.length ? { children } : {})
   })
   return { id: data.id, updatedAt: data.last_edited_time }
 }

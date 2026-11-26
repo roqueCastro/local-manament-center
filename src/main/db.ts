@@ -19,6 +19,7 @@ interface TaskRow {
   notion_db: string | null
   props: string | null // JSON: propiedades de Notion
   dirty: string | null // JSON: nombres de propiedades cambiadas localmente sin subir
+  details: string | null // cuerpo de la página a crear en Notion
   created_at: string
   updated_at: string
   synced: number
@@ -45,6 +46,7 @@ function rowToTask(row: TaskRow): Task {
     project: row.project,
     notionDb: row.notion_db,
     props: parseJson<Record<string, PropValue>>(row.props, {}),
+    details: row.details ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     synced: row.synced === 1
@@ -99,6 +101,8 @@ export function initDb(): void {
   // Migración: todas las propiedades de Notion + cuáles cambiaron localmente
   if (!columnExists('tasks', 'props')) db.exec('ALTER TABLE tasks ADD COLUMN props TEXT')
   if (!columnExists('tasks', 'dirty')) db.exec('ALTER TABLE tasks ADD COLUMN dirty TEXT')
+  // Migración: detalles de la tarea (cuerpo de la página en Notion)
+  if (!columnExists('tasks', 'details')) db.exec('ALTER TABLE tasks ADD COLUMN details TEXT')
 }
 
 export function listTasks(): Task[] {
@@ -140,15 +144,16 @@ export function createTask(input: NewTaskInput): Task {
     project: input.project ?? null,
     notionDb: null,
     props: input.props ?? {},
+    details: input.details?.trim() || null,
     createdAt: now,
     updatedAt: now,
     synced: false
   }
   db.prepare(
     `INSERT INTO tasks
-       (id, notion_id, title, status, due_date, priority, tags, project, props, created_at, updated_at, synced)
+       (id, notion_id, title, status, due_date, priority, tags, project, props, details, created_at, updated_at, synced)
      VALUES
-       (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @props, @created_at, @updated_at, @synced)`
+       (@id, @notion_id, @title, @status, @due_date, @priority, @tags, @project, @props, @details, @created_at, @updated_at, @synced)`
   ).run({
     id: task.id,
     notion_id: null,
@@ -159,6 +164,7 @@ export function createTask(input: NewTaskInput): Task {
     tags: JSON.stringify(task.tags),
     project: task.project,
     props: JSON.stringify(task.props),
+    details: task.details ?? null,
     created_at: task.createdAt,
     updated_at: task.updatedAt,
     synced: 0

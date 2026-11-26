@@ -91,6 +91,8 @@ export interface Task {
   project: string | null // nombre del proyecto (= título de la database de Notion)
   notionDb: string | null // id de la database de Notion donde vive la tarea
   props: Record<string, PropValue> // todas las propiedades de Notion (Cliente, Contacto, Estado…)
+  // Detalles con los que se creó la tarea; se escriben en el cuerpo de la página al crearla en Notion
+  details?: string | null
   createdAt: string
   updatedAt: string
   synced: boolean
@@ -104,6 +106,7 @@ export interface NewTaskInput {
   tags?: string[]
   project?: string | null
   props?: Record<string, PropValue>
+  details?: string | null // cuerpo de la página en Notion
 }
 
 // Campos editables de una tarea existente
@@ -201,6 +204,8 @@ export interface ProjectsApi {
 // Tarea propuesta por la IA a partir de la voz (para revisar antes de crear)
 export interface VoiceTask {
   title: string
+  // Todo lo que se dictó/escribió sobre la tarea, sin resumir (va al cuerpo de la página en Notion)
+  details?: string | null
   dueDate: string | null
   priority: number
   tags: string[]

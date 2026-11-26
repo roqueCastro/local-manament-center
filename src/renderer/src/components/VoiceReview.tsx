@@ -129,6 +129,13 @@ export function VoiceReview({ variant = 'overlay' }: { variant?: 'overlay' | 'di
                   </svg>
                 </button>
               </div>
+              <textarea
+                value={t.details ?? ''}
+                onChange={(e) => patch(i, { details: e.target.value })}
+                placeholder="Detalles (se guardan en el cuerpo de la página de Notion)"
+                rows={Math.min(12, Math.max(2, (t.details ?? '').split('\n').length + 1))}
+                className="scroll-thin w-full resize-y rounded-lg bg-card/60 px-2 py-1.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-2 focus:bg-card"
+              />
               {(() => {
                 const db = dbFor(t.project)
                 return (

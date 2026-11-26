@@ -144,9 +144,15 @@ function buildSystemPrompt(ctx: ParseContext): string {
   return [
     'Sos un asistente que convierte lo que escribe o dicta el usuario (en español) en una lista de tareas estructuradas.',
     'Respondé ÚNICAMENTE con un JSON válido con esta forma exacta:',
-    '{ "tasks": [ { "title": string, "project": string|null, "fields": { "<nombre de columna>": valor }, "due_date": string|null, "priority": number, "tags": string[] } ] }',
+    '{ "tasks": [ { "title": string, "details": string, "project": string|null, "fields": { "<nombre de columna>": valor }, "due_date": string|null, "priority": number, "tags": string[] } ] }',
+    'Regla principal: NUNCA descartes información. Lo que el usuario dijo y no entra en el título ni en una columna va en details.',
     'Reglas:',
-    '- title: breve y claro, en español. No metas en el título la fecha, la prioridad ni los datos que ya van en otra columna (cliente, contacto, correo, plan, estado…).',
+    '- title: claro y específico, en español, en una línea: que se entienda de qué se trata sin leer los detalles. ' +
+      'No metas en el título la fecha, la prioridad ni los datos que ya van en otra columna (cliente, contacto, correo, plan, estado…).',
+    '- details: TODO lo que el usuario explicó sobre la tarea: contexto, qué hay que hacer y cómo, pasos, requisitos, ' +
+      'motivos, errores, ejemplos, nombres, números, URLs. NO resumas, NO simplifiques y NO omitas nada: conservá cada ' +
+      'detalle con sus palabras. Solo corregí la puntuación y ordenalo en párrafos (separados por saltos de línea), o en ' +
+      'líneas que empiecen con "- " si enumera varias cosas. Si no dio nada más que lo que ya dice el título, "".',
     ...(columns
       ? [
           '- fields: valores para las COLUMNAS del proyecto, listadas abajo. Usá EXACTAMENTE el nombre de la columna. ' +
@@ -190,7 +196,8 @@ function normalizeTask(raw: any, projects: string[]): AiTask | null {
     raw.fields && typeof raw.fields === 'object' && !Array.isArray(raw.fields)
       ? (raw.fields as Record<string, unknown>)
       : {}
-  return { title: raw.title.trim(), dueDate, priority, tags, project, fields }
+  const details = typeof raw.details === 'string' && raw.details.trim() ? raw.details.trim() : null
+  return { title: raw.title.trim(), details, dueDate, priority, tags, project, fields }
 }
 
 export async function parseTasksFromText(

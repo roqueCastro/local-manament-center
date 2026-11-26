@@ -28,6 +28,7 @@ import {
   queryAllPages,
   retrieveAndMap,
   taskDataFromPage,
+  textToBlocks,
   updatePage
 } from './notion'
 import {
@@ -276,7 +277,9 @@ export async function syncNow(): Promise<SyncState> {
           ...corePropValues(t, target.mapping),
           ...t.props
         }
-        const { id, updatedAt } = await createPage(token, target.id, buildProperties(values, schema))
+        // Los detalles (dictados/escritos al crearla) van al cuerpo de la página
+        const children = t.details ? textToBlocks(t.details) : []
+        const { id, updatedAt } = await createPage(token, target.id, buildProperties(values, schema), children)
         markSynced(t.id, id, updatedAt, target.id)
         if (t.notionId) {
           // Notion no mueve páginas entre databases → se creó en la nueva; archivar la anterior

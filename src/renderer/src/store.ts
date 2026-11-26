@@ -256,6 +256,7 @@ export const useTasks = create<TasksState>((set, get) => ({
     for (const t of tasks) {
       await window.api.tasks.create({
         title: t.title,
+        details: t.details ?? null,
         dueDate: t.dueDate,
         priority: t.priority,
         tags: t.tags,
