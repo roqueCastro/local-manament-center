@@ -37,6 +37,10 @@ linux:
   maintainer: roqueCastro <roqueCastro@users.noreply.github.com>
 deb:
   artifactName: ${name}_${version}_${arch}.${ext}
+  # Scripts de instalación/desinstalación propios (sandbox y AppArmor en Ubuntu 24.04+,
+  # ver los comentarios de cada archivo).
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
 
 # ---- Windows: instalador .exe (NSIS) ----
 win:
