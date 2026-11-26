@@ -1,6 +1,6 @@
 import type { NewPropType, PropValue, SchemaChange, SchemaResult } from '../shared/types'
 import { NOTION_COLORS } from '../shared/types'
-import { rewriteLocalProps } from './db'
+import { listTasks, rewriteLocalProps } from './db'
 import {
   getDatabaseRaw,
   mapDatabase,
@@ -21,7 +21,7 @@ import { getConnection, requestSync } from './sync'
 import { databaseFor } from './tasks'
 
 // Edición del esquema de una database de Notion desde la app: crear/renombrar/eliminar
-// columnas y crear/recolorear/renombrar/eliminar opciones de selección y estado.
+// columnas, cambiarles el tipo y crear/recolorear/renombrar/eliminar opciones de selección y estado.
 // Se aplica directamente en Notion (requiere conexión) y luego se ajustan los datos locales.
 
 const OPTION_TYPES = ['select', 'multi_select', 'status']
@@ -87,6 +87,49 @@ function replacedValue(type: string, page: any, prop: string, from: string, to: 
     return { multi_select: names.map((n) => ({ name: n === from ? to : n })) }
   }
   return { [type]: { name: to } }
+}
+
+// Valor local de una columna convertido al tipo nuevo (las tareas aún sin subir; las
+// ya sincronizadas se reemplazan con lo que Notion convirtió en el próximo sync).
+function convertValue(v: PropValue | undefined, type: NewPropType): PropValue {
+  if (v === null || v === undefined || v === '') return null
+  const text = Array.isArray(v) ? v.join(', ') : typeof v === 'boolean' ? (v ? 'Sí' : '') : String(v)
+  switch (type) {
+    case 'select': {
+      // Una opción no puede llevar comas: si había varias, la primera
+      const first = (Array.isArray(v) ? v[0] : text.split(',')[0])?.trim()
+      return first || null
+    }
+    case 'multi_select': {
+      const arr = (Array.isArray(v) ? v : text.split(',')).map((x) => x.trim()).filter(Boolean)
+      return [...new Set(arr)]
+    }
+    case 'number': {
+      const n = typeof v === 'number' ? v : Number(text.replace(',', '.'))
+      return Number.isFinite(n) ? n : null
+    }
+    case 'checkbox':
+      return typeof v === 'boolean' ? v : /^(true|s[ií]|yes|x|1)$/i.test(text.trim())
+    case 'date': {
+      const m = text.match(/^\d{4}-\d{2}-\d{2}/)
+      return m ? m[0] : null
+    }
+    default:
+      return text.trim() || null
+  }
+}
+
+// Opciones para una columna que pasa a ser de selección: los valores que ya tienen las
+// tareas, para que Notion no los pierda al convertir.
+function optionsFromValues(values: PropValue[], type: 'select' | 'multi_select'): { name: string }[] {
+  const names = new Set<string>()
+  for (const v of values) {
+    const c = convertValue(v, type)
+    for (const n of Array.isArray(c) ? c : typeof c === 'string' ? [c] : []) {
+      if (names.size < 100 && ![...names].some((x) => same(x, n))) names.add(n)
+    }
+  }
+  return [...names].map((name) => ({ name }))
 }
 
 // Tareas locales de una database (incluidas las nuevas aún sin subir)
@@ -259,6 +302,39 @@ async function apply(token: string, dbId: string, change: SchemaChange): Promise
         return { props, dirty: dirty.map((d) => (d === change.prop ? name : d)) }
       })
       renameInViews(change.prop, name)
+      return updated.db
+    }
+
+    case 'changeType': {
+      const def = propDef(raw, change.prop)
+      if (def.type === 'title') throw new SchemaError('La columna del título no puede cambiar de tipo.')
+      if (def.type === 'status') {
+        throw new SchemaError('Notion no permite cambiar el tipo de una columna de estado desde la API; hazlo en Notion.')
+      }
+      if (def.type === change.type) return { id: dbId, ...mapDatabase(raw) }
+
+      let propDefNew = newPropertyDef(change.type)
+      if (change.type === 'select' || change.type === 'multi_select') {
+        // Conservar las opciones que ya tenía (select ↔ multi_select) y sumar los valores
+        // actuales de las tareas como opciones
+        const prev = OPTION_TYPES.includes(def.type) ? (def[def.type]?.options ?? []) : []
+        const values = listTasks()
+          .filter(inDb(dbId))
+          .map((t) => t.props[change.prop])
+        const fromValues = optionsFromValues(values, change.type).filter(
+          (o) => !prev.some((p: any) => same(p.name, o.name))
+        )
+        const opts = [
+          ...prev.map((o: any) => ({ name: o.name, color: o.color })),
+          ...fromValues
+        ].slice(0, 100)
+        propDefNew = newPropertyDef(change.type, opts)
+      }
+      const updated = await patchDatabaseProperties(token, dbId, { [change.prop]: propDefNew })
+      rewriteLocalProps(inDb(dbId), (props, dirty) => {
+        if (change.prop in props) props[change.prop] = convertValue(props[change.prop], change.type)
+        return { props, dirty }
+      })
       return updated.db
     }
 

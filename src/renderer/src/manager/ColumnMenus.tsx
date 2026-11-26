@@ -6,7 +6,7 @@ import { OPTION_PROP_TYPES, useOptionManager } from './OptionField'
 import { chipOptions } from './PropEditor'
 
 // Menús para administrar las columnas (propiedades) de una database de Notion:
-// crear una columna nueva y renombrar / editar opciones / eliminar una existente.
+// crear una columna nueva y renombrar / cambiar el tipo / editar opciones / eliminar una existente.
 
 const TYPE_LABEL: Record<string, string> = Object.fromEntries(NEW_PROP_TYPES.map((t) => [t.type, t.label]))
 TYPE_LABEL.status = 'Estado'
@@ -187,6 +187,7 @@ const MenuRow = ({
 const ICON_EDIT =
   'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'
 const ICON_LIST = 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z'
+const ICON_TYPE = 'M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z'
 const ICON_DELETE = 'M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
 
 export function ColumnMenu({
@@ -200,11 +201,14 @@ export function ColumnMenu({
 }): JSX.Element {
   const updateSchema = useTasks((s) => s.updateSchema)
   const manage = useOptionManager(db, schema)
-  const [mode, setMode] = useState<'menu' | 'rename' | 'options' | 'delete'>('menu')
+  const [mode, setMode] = useState<'menu' | 'rename' | 'type' | 'options' | 'delete'>('menu')
+  const [newType, setNewType] = useState<NewPropType | null>(null)
   const [name, setName] = useState(schema.name)
   const { busy, error, run } = useRun()
   const hasOptions = OPTION_PROP_TYPES.includes(schema.type) && !!manage
   const isTitle = schema.type === 'title'
+  // Tipos que se pueden cambiar desde la app (no título, estado ni los calculados por Notion)
+  const canChangeType = NEW_PROP_TYPES.some((t) => t.type === schema.type)
 
   const back = (
     <button type="button" onClick={() => setMode('menu')} aria-label="Volver" className="icon-btn h-8 w-8">
@@ -236,6 +240,51 @@ export function ColumnMenu({
         <div className="flex justify-end">
           <button type="button" disabled={busy || !name.trim()} onClick={() => void save()} className="btn btn-sm btn-filled">
             Guardar
+          </button>
+        </div>
+        <Status busy={busy} error={error} />
+      </div>
+    )
+  }
+
+  if (mode === 'type') {
+    const save = async (): Promise<void> => {
+      if (!newType) return
+      if (await run(() => updateSchema(db.id, { kind: 'changeType', prop: schema.name, type: newType }))) onDone()
+    }
+    return (
+      <div className="space-y-2 p-1">
+        <div className="flex items-center gap-1">
+          {back}
+          <span className="text-sm font-medium">Tipo de «{schema.name}»</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {NEW_PROP_TYPES.filter((t) => t.type !== schema.type).map((t) => (
+            <button
+              key={t.type}
+              type="button"
+              onClick={() => setNewType(t.type)}
+              className={`chip h-7 text-xs ${newType === t.type ? 'chip-on' : ''}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {newType && (
+          <div className="rounded-xl bg-surface-2 p-3 text-xs leading-relaxed">
+            Pasa de <b>{TYPE_LABEL[schema.type] ?? schema.type}</b> a <b>{TYPE_LABEL[newType]}</b> en «{db.title}».
+            Notion convierte los datos que ya tienen las tareas; los que no encajen en el tipo nuevo (por ejemplo,
+            texto en una columna de número) se pierden.
+            {(newType === 'select' || newType === 'multi_select') &&
+              ' Los valores actuales se agregan como opciones de la lista.'}
+          </div>
+        )}
+        <div className="flex justify-end gap-1.5">
+          <button type="button" onClick={() => setMode('menu')} className="btn btn-sm btn-text">
+            Cancelar
+          </button>
+          <button type="button" disabled={busy || !newType} onClick={() => void save()} className="btn btn-sm btn-filled">
+            Cambiar tipo
           </button>
         </div>
         <Status busy={busy} error={error} />
@@ -288,6 +337,7 @@ export function ColumnMenu({
         {schema.name} · {TYPE_LABEL[schema.type] ?? schema.type}
       </p>
       <MenuRow icon={ICON_EDIT} label="Renombrar" onClick={() => setMode('rename')} />
+      {canChangeType && <MenuRow icon={ICON_TYPE} label="Cambiar tipo" onClick={() => setMode('type')} />}
       {hasOptions && <MenuRow icon={ICON_LIST} label="Editar opciones" onClick={() => setMode('options')} />}
       {!isTitle && <MenuRow icon={ICON_DELETE} label="Eliminar columna" danger onClick={() => setMode('delete')} />}
     </div>

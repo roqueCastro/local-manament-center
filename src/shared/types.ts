@@ -72,6 +72,7 @@ export type SchemaChange =
       options?: { name: string; color?: string }[]
     }
   | { kind: 'renameProperty'; prop: string; name: string }
+  | { kind: 'changeType'; prop: string; type: NewPropType }
   | { kind: 'deleteProperty'; prop: string }
 
 export interface SchemaResult {
