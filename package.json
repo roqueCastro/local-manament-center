@@ -1,6 +1,6 @@
 {
   "name": "local-management-center",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Centro de control de tareas con icono flotante, Notion e IA por voz",
   "main": "./out/main/index.js",
   "desktopName": "local-management-center.desktop",
