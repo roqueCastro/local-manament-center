@@ -19,6 +19,7 @@ import { hideManager, openManager, openManagerAt, takePendingSelect, toggleManag
 import { initReminders, refreshReminders } from './reminders'
 import { getAutostart, setAutostart } from './autostart'
 import { initSyncState, onDataChanged, onSyncStateChange, startAutoSync, stopAutoSync } from './sync'
+import { abrirServicios, initServicios, serviciosDisponibles } from './servicios'
 import { checkForUpdates, getUpdateState, initUpdater, installUpdate, openDownloadPage, stopUpdater } from './updater'
 
 // Carpeta de datos fija (tareas, token, ajustes), sin depender del nombre visible de la app.
@@ -46,8 +47,12 @@ if (!gotLock) {
   app.exit(0)
 }
 
-// Volver a abrir la app (ej. desde el lanzador) muestra el panel de la instancia existente.
-app.on('second-instance', () => showPanel())
+// Volver a abrir la app (ej. desde el lanzador) muestra el panel de la instancia existente;
+// con --servicios abre la ventana de Servicios.
+app.on('second-instance', (_e, argv) => {
+  if (serviciosDisponibles && argv.includes('--servicios')) abrirServicios()
+  else showPanel()
+})
 
 app.whenReady().then(() => {
   // Permitir el uso del micrófono (para dictar tareas por voz)
@@ -92,6 +97,10 @@ app.whenReady().then(() => {
       updateBubbleBadge()
     }
   })
+  // Servicios (solo Linux): Docker + captura de servidores; enciende los marcados al arrancar
+  initServicios()
+  if (serviciosDisponibles && process.argv.includes('--servicios')) abrirServicios()
+
   ipcMain.handle('manager:takeSelect', () => takePendingSelect())
   ipcMain.handle('autostart:get', () => getAutostart())
   ipcMain.handle('autostart:set', (_e, on: boolean) => setAutostart(on))

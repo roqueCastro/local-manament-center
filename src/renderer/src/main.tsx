@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import ManagerApp from './manager/ManagerApp'
 import ReminderApp from './reminder/ReminderApp'
+import ServiciosApp from './servicios/ServiciosApp'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './index.css'
 
@@ -30,6 +31,8 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
         <ManagerApp />
       ) : window.location.hash === '#reminder' ? (
         <ReminderApp />
+      ) : window.location.hash === '#servicios' ? (
+        <ServiciosApp />
       ) : (
         <App />
       )}

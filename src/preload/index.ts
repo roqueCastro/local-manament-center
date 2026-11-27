@@ -11,6 +11,10 @@ import type {
   ManagerPrefs,
   ReminderAction,
   ReminderAlert,
+  AccionServicio,
+  ResultadoServicio,
+  ServidorConfig,
+  ServiciosResumen,
   Task,
   TaskPatch,
   UpdateState,
@@ -88,6 +92,30 @@ const api: WindowApi = {
     },
     offState: () => {
       ipcRenderer.removeAllListeners('update:state')
+    }
+  },
+  servicios: {
+    estado: () => ipcRenderer.invoke('servicios:estado') as Promise<ServiciosResumen>,
+    accion: (id: string, accion: AccionServicio) =>
+      ipcRenderer.invoke('servicios:accion', id, accion) as Promise<ResultadoServicio>,
+    reiniciarContenedor: (id: string, contenedor: string) =>
+      ipcRenderer.invoke('servicios:reiniciarContenedor', id, contenedor) as Promise<ResultadoServicio>,
+    logs: (id: string, contenedor?: string | null) =>
+      ipcRenderer.invoke('servicios:logs', id, contenedor ?? null) as Promise<string>,
+    setAlIniciar: (id: string, on: boolean) =>
+      ipcRenderer.invoke('servicios:setAlIniciar', id, on) as Promise<ResultadoServicio>,
+    guardarServidor: (s: ServidorConfig, idOriginal: string | null) =>
+      ipcRenderer.invoke('servicios:guardarServidor', s, idOriginal) as Promise<ResultadoServicio>,
+    eliminarServidor: (id: string) => ipcRenderer.invoke('servicios:eliminarServidor', id) as Promise<ResultadoServicio>,
+    abrirConfig: () => ipcRenderer.send('servicios:abrirConfig'),
+    onCambio: (cb: () => void) => {
+      ipcRenderer.on('servicios:cambio', () => cb())
+    },
+    offCambio: () => {
+      ipcRenderer.removeAllListeners('servicios:cambio')
+    },
+    onSeleccionar: (cb: (id: string) => void) => {
+      ipcRenderer.on('servicios:seleccionar', (_e, id: string) => cb(id))
     }
   },
   onSelectTask: (cb: (taskId: string) => void) => {

@@ -305,6 +305,89 @@ export interface ManagerPrefs {
   compact?: boolean // tabla compacta (textos recortados a 2 líneas); por defecto texto completo
 }
 
+// ---- Servicios (solo Linux): Docker compose + captura de servidores con systemd --user ----
+
+export type TipoLog = 'nginx' | 'mysql' | 'laravellog' | 'fpmslow' | 'fpmlog'
+export const TIPOS_LOG: TipoLog[] = ['nginx', 'mysql', 'laravellog', 'fpmslow', 'fpmlog']
+
+// Un servidor que se captura con bash/captura_servidor.sh (un servicio systemd por servidor)
+export interface ServidorConfig {
+  id: string // corto, para el nombre de la unidad: centro-captura-<id>.service
+  nombre: string // nombre en log_ingest/ y en Graylog (ej. miempresa_web)
+  etiqueta: string // lo que se muestra (ej. "Ultra")
+  ip: string
+  tipos: TipoLog[]
+  metricas: boolean // CPU/RAM/PHP-FPM (metricas_servidor.sh)
+  alIniciar: boolean // encenderlo al arrancar la app (con el PC)
+}
+
+// Un proyecto de docker compose (se enciende con up -d y se apaga con stop, nunca down)
+export interface DockerConfig {
+  id: string // nombre del proyecto (-p)
+  etiqueta: string
+  dir: string // carpeta del docker-compose.yml (el compose usa ${PWD})
+  alIniciar: boolean
+}
+
+export interface ServiciosConfig {
+  baseDir: string // carpeta de ListenerServer (donde está bash/captura_servidor.sh)
+  docker: DockerConfig[]
+  servidores: ServidorConfig[]
+}
+
+export type EstadoServicio = 'activo' | 'parcial' | 'iniciando' | 'fallo' | 'detenido' | 'desconocido'
+
+export interface ContenedorEstado {
+  nombre: string
+  servicio: string // servicio del compose
+  estado: string // running | exited | restarting | created | paused…
+  detalle: string // "Up 3 minutes", "Exited (255) 2 hours ago"…
+}
+
+export interface ServicioEstado {
+  id: string // docker:<proyecto> | srv:<id>
+  tipo: 'docker' | 'captura'
+  etiqueta: string
+  estado: EstadoServicio
+  detalle: string
+  desde: string | null // ISO: desde cuándo está encendido
+  alIniciar: boolean
+  contenedores?: ContenedorEstado[]
+  servidor?: ServidorConfig
+  ultimoMinuto?: string | null // último resumen de la captura ("nginx=ok mysql=sin-logs…")
+}
+
+export interface ServiciosResumen {
+  disponible: boolean // false fuera de Linux
+  dockerOk: boolean // el demonio de Docker responde
+  avisos: string[]
+  servicios: ServicioEstado[]
+  configPath: string
+  baseDir: string
+}
+
+export type AccionServicio = 'iniciar' | 'detener' | 'reiniciar'
+
+// Errores de negocio: ok=false + mensaje (nunca se lanza excepción al renderer)
+export interface ResultadoServicio {
+  ok: boolean
+  mensaje?: string
+}
+
+export interface ServiciosApi {
+  estado: () => Promise<ServiciosResumen>
+  accion: (id: string, accion: AccionServicio) => Promise<ResultadoServicio>
+  reiniciarContenedor: (id: string, contenedor: string) => Promise<ResultadoServicio>
+  logs: (id: string, contenedor?: string | null) => Promise<string>
+  setAlIniciar: (id: string, on: boolean) => Promise<ResultadoServicio>
+  guardarServidor: (s: ServidorConfig, idOriginal: string | null) => Promise<ResultadoServicio>
+  eliminarServidor: (id: string) => Promise<ResultadoServicio>
+  abrirConfig: () => void
+  onCambio: (cb: () => void) => void
+  offCambio: () => void
+  onSeleccionar: (cb: (id: string) => void) => void
+}
+
 export interface WindowApi {
   tasks: TaskApi
   notion: NotionApi
@@ -319,6 +402,7 @@ export interface WindowApi {
     set: (on: boolean) => Promise<boolean>
   }
   updates: UpdatesApi
+  servicios: ServiciosApi
   // El gestor recibe "abrir esta tarea" (desde un recordatorio)
   onSelectTask: (cb: (taskId: string) => void) => void
   takeSelectTask: () => Promise<string | null>

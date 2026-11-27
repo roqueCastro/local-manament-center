@@ -5,6 +5,7 @@ import trayColorPath from '../../resources/trayColor.png?asset'
 import { getBubbleBounds, isBubbleEnabled, setBubbleEnabled } from './bubble'
 import { openManager } from './manager'
 import { getUpdateState, installUpdate, openDownloadPage } from './updater'
+import { abrirServicios, serviciosDisponibles } from './servicios'
 
 const PANEL_WIDTH = 420
 const PANEL_HEIGHT = 600
@@ -153,6 +154,18 @@ export function buildAppMenu(): Menu {
         openManager()
       }
     },
+    // Docker y captura de servidores (solo Linux)
+    ...(serviciosDisponibles
+      ? [
+          {
+            label: 'Servicios',
+            click: () => {
+              hidePanel()
+              abrirServicios()
+            }
+          }
+        ]
+      : []),
     {
       label: 'Mostrar burbuja',
       type: 'checkbox',
